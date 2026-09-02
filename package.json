@@ -1,0 +1,38 @@
+{
+  "name": "dsh-model-capabilities",
+  "version": "0.1.0",
+  "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities and gateway compat switches for custom llm-pi-ai providers, edited inside the official Models settings card. 模型能力：思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "AGENTS.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-modules"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  }
+}
