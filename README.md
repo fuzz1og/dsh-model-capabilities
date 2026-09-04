@@ -28,11 +28,13 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 ## 安装
 
 ```sh
+# GitHub 固定提交（推荐；先到 Releases/Tags 拿 40 位 commit，或直接用 tag）
+dsh plugin --profile web add github:fuzz1og/dsh-model-capabilities#<40位commit>
+# 例（tag 对应的提交同样可用 40 位 sha）：
+#   dsh plugin --profile web add github:fuzz1og/dsh-model-capabilities#$(git ls-remote https://github.com/fuzz1og/dsh-model-capabilities.git refs/tags/v0.2.0 | cut -c1-40)
+
 # 本地开发安装（从仓库根目录；保持目录在位）
 dsh plugin --profile web add ./
-
-# 或安装 GitHub 固定提交
-dsh plugin --profile web add github:<owner>/dsh-model-capabilities#<40位commit>
 
 # 验证组合与行解析
 dsh --profile web --dump-config
@@ -56,9 +58,13 @@ dsh --profile web
 
 ## 兼容性
 
-- 目标 DSH：`0.1.2-alpha.4`（web profile，`@deepseek-ai/dsh` npm 部署）。
+- 目标 DSH：`0.1.2-rc.1`（实测运行中）；`0.1.3-alpha.1` 经源码级核对：
+  `settings.models.provider-card` 槽位契约、`llm-pi-ai` 设置节 schema、
+  settings 服务通路均无变更（仅 discovery 增强，与本插件互补不重叠）。
 - 依赖客户端运行时与官方 `settings.models.provider-card` 槽位（0.1.x 系列）；
   若上游改列槽位协议，需按新契约调整注册。
+- UI 基于官方 `@deepseek-ai/dsh-client-ui-primitives`（Button / Pill / Input /
+  Menu / DisclosureRow / StateDot）与 `--dsw-*` 令牌，浅色/深色自动跟随应用主题。
 
 ## 卸载 / 停用
 

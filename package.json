@@ -1,8 +1,17 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities and gateway compat switches for custom llm-pi-ai providers, edited inside the official Models settings card. 模型能力：思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关。",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fuzz1og/dsh-model-capabilities.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fuzz1og/dsh-model-capabilities/issues"
+  },
+  "homepage": "https://github.com/fuzz1og/dsh-model-capabilities#readme",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
