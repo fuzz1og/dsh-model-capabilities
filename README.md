@@ -10,10 +10,10 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 - 挂载点：官方扩展位 `settings.models.provider-card`（keyed by `llm-pi-ai`），
   即 Models 设置页每张 pi-ai 提供方卡片内的适配器扩展区。
 - 数据属主：`llm-pi-ai` 设置节（pi-ai 适配器）。浏览器面通过官方设置通路
-  `ctx.remote.settings.describe() / mutate()` 读写 —— 与官方 Models 页同一套 API，
-  带 revision 防冲突，且每次写入都经 pi-ai config schema 校验
+  Host 同源 HTTP 桥（GET/POST `/model-capabilities`）经 `ctx.settings` 读写 —— 与官方
+  同一套 revision 防冲突 + pi-ai config schema 校验
   （`assertServiceable`：非法的协议/档位组合会在写入处就被拒绝）。
-- Host 面有意保持最小（仅挂载行；无自有持久数据）。
+- Host 面仅提供同源 HTTP 桥；无自有持久数据（`llm-pi-ai` 命名空间属主是 pi-ai 适配器）。
 
 ## 字段对照
 
