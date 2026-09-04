@@ -2,7 +2,8 @@
 
 > 模型能力 —— 在 **Models 设置页原生卡片内** 为自定义 `llm-pi-ai` 模型配置：
 > 思考强度档位（reasoningEfforts）、提供方默认思考强度（reasoning）、
-> 支持模态（input / defaultInput）、网关兼容开关（compat）。
+> 支持模态（input / defaultInput）、网关兼容开关（compat）、
+> 请求头（headers，含 opencode Go 要求的 `x-opencode-session` 会话亲和）。
 > 全部经官方 `settings.mutate` 写入 `settings.yaml`，**无需手改配置**。
 
 A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
@@ -23,6 +24,7 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 | 模型 · 思考强度（未设置 / 禁用 / 标准档位 / 自定义） | `models[i].reasoningEfforts`（`false` / 档位字典；`off` 可留空=不发送） |
 | 提供方 · 默认思考强度 | `providers.<route>.reasoning` |
 | 提供方 · 默认模态 | `providers.<route>.defaultInput` |
+| 提供方 · 会话亲和 / 自定义请求头 | `providers.<route>.headers`（名称统一小写；`user-agent` 由 DSH 归属头占用，不可设置） |
 | 兼容设置：developer 角色 / reasoning_effort / 输出上限字段 / 思考格式 | `providers.<route>.compat.{supportsDeveloperRole,supportsReasoningEffort,maxTokensField,thinkingFormat}` |
 
 ## 安装
@@ -47,9 +49,35 @@ dsh --profile web
 
 1. Settings → Models：添加/编辑一个自定义（llm-pi-ai）提供方，保存后卡片内出现「模型能力」卡片。
 2. 展开每个模型行：选择模态与思考强度；需要非标准线上拼写时选「自定义」逐档填写（如 `max → ultra`）。
-3. 点火失败（网关 400）时，在「兼容设置」里按上游文档修正，例如
+3. 使用 opencode Go（或任何要求会话亲和的网关）时，展开「请求头 · 会话亲和」，
+   把 `x-opencode-session` 切到「固定值」（自动生成稳定标识，可改写），点「应用能力配置」。
+4. 点火失败（网关 400）时，在「兼容设置」里按上游文档修正，例如
    `developer 角色: 不支持（用 system）`、`maxTokensField: max_tokens`。
-4. 点「应用能力配置」→ 写入成功显示绿色提示；冲突/校验拒绝会显示原因。
+5. 点「应用能力配置」→ 写入成功显示绿色提示；冲突/校验拒绝会显示原因。
+
+## opencode Go 会话亲和（x-opencode-session）
+
+[opencode 官方文档](https://opencode.ai/docs/go/) 对 Go 套餐的使用方有三条要求：
+不产生滥用流量、**正确标识自身（不用泛化 User-Agent）**、**携带 `x-opencode-session` 头**
+（网关按会话做亲和路由并优化 prompt caching），否则**账号可能被标记**。
+
+本插件的对应关系：
+
+- **身份要求已由 DSH 满足**：`dsh-llm` 的归属头机制对每个提供方请求发送
+  `user-agent: deepseek-harness/<版本> (+https://github.com/deepseek-ai/deepseek-harness)`，
+  且 `user-agent` 列为保留头——用户配置不能覆盖它，也不需要伪装 opencode 客户端。
+- **会话亲和在本插件内配置**：卡片「请求头」区的 `x-opencode-session` 行写入
+  `providers.<route>.headers`（pi-ai schema 原生字段，写入时按 Fetch 头合法性校验）。
+  该头在 wire 上**最后合并**进每个请求（openai-completions / openai-responses /
+  anthropic-messages 三条路线均生效），且不受 `user-agent` 保留逻辑影响。
+- **粒度边界（如实说明）**：这里写入的是**每提供方固定值 = 安装级亲和**——同一 DSH
+  的所有会话共用一个标识，满足官方「携带该头」的要求并给出稳定路由；**每会话轮换**
+  需要 wire 层注入（如 dsh.pub 上的 `dsh-opencode-session-id` 类插件）或上游支持
+  （pi-ai 内置的 `sendSessionAffinityHeaders`/`sessionAffinityFormat` 亲和格式不含
+  `x-opencode-session`，且 DSH 0.1.2 的 compat schema 未暴露这两个字段）。
+
+值本身只是不透明标识（如 `dsh-k3j9x2m4qf7n`），不是凭据；单行、≤512 字符，
+重复生成会更换标识（网关侧按新会话重新亲和）。
 
 ## 配置
 
@@ -61,6 +89,9 @@ dsh --profile web
 - 目标 DSH：`0.1.2-rc.1`（实测运行中）；`0.1.3-alpha.1` 经源码级核对：
   `settings.models.provider-card` 槽位契约、`llm-pi-ai` 设置节 schema、
   settings 服务通路均无变更（仅 discovery 增强，与本插件互补不重叠）。
+- `providers.<route>.headers` 字段在 `0.1.2-rc.1` 的 pi-ai schema 中源码级核实
+  （`z.dict(z.string())` + `assertValidHeaders` Fetch 合法性校验；经
+  `requestHeaders(profile.headers)` 最后合并，`user-agent` 为保留头）。
 - 依赖客户端运行时与官方 `settings.models.provider-card` 槽位（0.1.x 系列）；
   若上游改列槽位协议，需按新契约调整注册。
 - UI 基于官方 `@deepseek-ai/dsh-client-ui-primitives`（Button / Pill / Input /
