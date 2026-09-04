@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities, gateway compat switches and manual request headers for custom llm-pi-ai providers, plus automatic per-DSH-session x-opencode-session injection (opencode Go session affinity) at the wire layer. 模型能力：思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关 / 请求头；每 DSH 会话自动注入 opencode 会话亲和头。",
   "type": "module",
   "license": "MIT",

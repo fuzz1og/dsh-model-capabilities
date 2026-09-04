@@ -70,14 +70,22 @@ dsh --profile web
   `user-agent: deepseek-harness/<版本> (+https://github.com/deepseek-ai/deepseek-harness)`，
   且 `user-agent` 列为保留头——用户配置不能覆盖它，也不需要伪装 opencode 客户端。
 - **会话亲和自动完成，且粒度是「一个 DSH 会话一个标识」**：
-  - Host 面监听 `llm/stream` waterfall，读取每流请求自带的 `sessionId`
-    （dsh-agent-loop 注入的 DSH 会话 id）；
-  - 提供方 `baseURL` 的 host 命中亲和名单（默认 `opencode.ai`，含子域）时，
-    一个 `globalThis.fetch` 包装把 `x-opencode-session: dsh-<12位摘要>` 盖到
-    该流出站请求上——令牌为会话 id 的 SHA-256 域分隔摘要，**同一会话跨轮次稳定、
-    不同会话互不相同、不可逆推**；
-  - 三条协议路线（openai-completions / openai-responses / anthropic-messages）都走
-    同一 wire，全部生效；仅会话内流式调用被标记，网页检索等其它出站请求不受影响。
+  - Host 面监听 `llm/stream` waterfall（跨插件须 global 注册），读取每流请求
+    自带的 `sessionId`（dsh-agent-loop 注入的 DSH 会话 id），**同步**把该流的
+    令牌登记进 per-host FIFO 台账；
+  - 一个 `globalThis.fetch` 包装消费台账：命中亲和 host（默认 `opencode.ai`，
+    含子域）的出站请求被盖写 `x-opencode-session: dsh-<12位摘要>`——令牌为
+    会话 id 的 SHA-256 域分隔摘要，**同一会话跨轮次稳定、不同会话互不相同、
+    不可逆推**；队列为空时回退到该 host 最近使用的令牌（辅助调用、标题生成
+    等同会话延续同一桶）；
+  - 配对依据：适配器 `maxRetries: 0`，每条模型流的 waterfall 触发与 wire
+    fetch 恰好一一对应，且 waterfall 回调先于该流的 fetch 同步执行。**并发
+    边界（如实说明）**：同一 host 上不同会话的流真正并发交错时，FIFO 可能瞬
+    时互换令牌，下一次请求自纠；网关契约（头存在、会话内值稳定）仍然成立。
+    台账不依赖异步上下文——AsyncLocalStorage 实测会在 pi-ai 适配器内部
+    await 链上丢失，故不采用；
+  - 三条协议路线（openai-completions / openai-responses / anthropic-messages）
+    都走同一 wire，全部生效；非会话出站请求（网页检索等）不受影响。
 - **与手动请求头的关系**：卡片「请求头」区是通用编辑器，按需手动添加任意头
   （含 `x-opencode-session` 固定值——pi-ai schema 原生 `providers.<route>.headers`，
   Fetch 合法性校验）。手动同名头在**非会话流**（如模型目录拉取）仍然发出；
@@ -106,11 +114,12 @@ dsh --profile web
 - `providers.<route>.headers` 字段在 `0.1.2-rc.1` 的 pi-ai schema 中源码级核实
   （`z.dict(z.string())` + `assertValidHeaders` Fetch 合法性校验；经
   `requestHeaders(profile.headers)` 最后合并，`user-agent` 为保留头）。
-- 会话注入链路在 `0.1.2-rc.1` 源码级核实：agent loop 请求带 `sessionId` →
-  `LlmRuntime.stream` 经 `llm/stream` waterfall（入参冻结只读）→ pi-ai 适配器
-  以 `requestHeaders(profile.headers)` 自建头（waterfall 无法注入头，故取
-  fetch 包装方案）；已用本地 mock 网关（`hosts` 配置指向 127.0.0.1）实测：
-  不同会话令牌不同、同会话跨轮次相同。
+- 会话注入链路在 `0.1.2-rc.1` 源码级核实 + 本地 mock 网关实测：agent loop
+  请求带 `sessionId` → `LlmRuntime.stream` 经 `llm/stream` waterfall（跨插件
+  监听须 global 注册；入参冻结只读）→ pi-ai 适配器以 `requestHeaders(profile.headers)`
+  自建头且 `maxRetries: 0`（每流恰一次 wire fetch）→ waterfall 同步登记 +
+  fetch 包装消费的 per-host FIFO 台账；实测不同会话令牌不同、同会话
+  （含标题生成等辅助调用）令牌相同。
 - 依赖客户端运行时与官方 `settings.models.provider-card` 槽位（0.1.x 系列）；
   若上游改列槽位协议，需按新契约调整注册。
 - UI 基于官方 `@deepseek-ai/dsh-client-ui-primitives`（Button / Pill / Input /
