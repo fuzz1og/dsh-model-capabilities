@@ -3,9 +3,10 @@
 > 模型能力 —— 在 **Models 设置页原生卡片内** 为自定义 `llm-pi-ai` 模型配置：
 > 思考强度档位（reasoningEfforts）、提供方默认思考强度（reasoning）、
 > 支持模态（input / defaultInput）、网关兼容开关（compat）、
-> 通用请求头（headers，按需手动添加）。
-> 另在 wire 层**自动按 DSH 会话注入 `x-opencode-session`**（opencode Go 会话亲和：
-> 一个 DSH 会话一个稳定标识，跨轮次不变）。全部配置经官方 `settings.mutate`
+> 通用请求头（headers，按需手动添加；值支持 `{{session}}` 占位符）。
+> 占位符在 wire 层**按 DSH 会话替换**为当前会话 id 的 SHA-256 稳定标识
+> （opencode Go 会话亲和：一个 DSH 会话一个令牌，跨轮次不变）；
+> 命中亲和 host 且未自建该头时也会自动注入。全部配置经官方 `settings.mutate`
 > 写入 `settings.yaml`，**无需手改配置**。
 
 A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
@@ -27,7 +28,7 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 | 模型 · 思考强度（未设置 / 禁用 / 标准档位 / 自定义） | `models[i].reasoningEfforts`（`false` / 档位字典；`off` 可留空=不发送） |
 | 提供方 · 默认思考强度 | `providers.<route>.reasoning` |
 | 提供方 · 默认模态 | `providers.<route>.defaultInput` |
-| 提供方 · 请求头（按需手动添加） | `providers.<route>.headers`（名称统一小写；`user-agent` 由 DSH 归属头占用，不可设置） |
+| 提供方 · 请求头（按需手动添加） | `providers.<route>.headers`（名称统一小写；值支持 `{{session}}` 占位符 = 每请求自动填入当前会话 SHA-256 标识；`user-agent` 由 DSH 归属头占用，不可设置） |
 | 兼容设置：developer 角色 / reasoning_effort / 输出上限字段 / 思考格式 | `providers.<route>.compat.{supportsDeveloperRole,supportsReasoningEffort,maxTokensField,thinkingFormat}` |
 
 ## 安装
@@ -52,8 +53,9 @@ dsh --profile web
 
 1. Settings → Models：添加/编辑一个自定义（llm-pi-ai）提供方，保存后卡片内出现「模型能力」卡片。
 2. 展开每个模型行：选择模态与思考强度；需要非标准线上拼写时选「自定义」逐档填写（如 `max → ultra`）。
-3. 需要自定义请求头时，展开「请求头」→「添加请求头」逐行填写（如网关要求的鉴权/路由头），
-   点「应用能力配置」。opencode Go 的 `x-opencode-session` **无需手动添加**——见下节的自动按会话注入。
+3. 需要随会话变化的请求头（如 opencode Go 的 `x-opencode-session`）：展开「请求头」
+   →「添加请求头」，名称填 `x-opencode-session`，**值填 `{{session}}`**——每次请求
+   由 DSH 自动替换为当前会话的 SHA-256 稳定标识；固定值则原样发送。点「应用能力配置」。
 4. 点火失败（网关 400）时，在「兼容设置」里按上游文档修正，例如
    `developer 角色: 不支持（用 system）`、`maxTokensField: max_tokens`。
 5. 点「应用能力配置」→ 写入成功显示绿色提示；冲突/校验拒绝会显示原因（冲突后视图自动刷新，可直接重试）。
@@ -69,27 +71,27 @@ dsh --profile web
 - **身份要求已由 DSH 满足**：`dsh-llm` 的归属头机制对每个提供方请求发送
   `user-agent: deepseek-harness/<版本> (+https://github.com/deepseek-ai/deepseek-harness)`，
   且 `user-agent` 列为保留头——用户配置不能覆盖它，也不需要伪装 opencode 客户端。
-- **会话亲和自动完成，且粒度是「一个 DSH 会话一个标识」**：
-  - Host 面监听 `llm/stream` waterfall（跨插件须 global 注册），读取每流请求
-    自带的 `sessionId`（dsh-agent-loop 注入的 DSH 会话 id），**同步**把该流的
-    令牌登记进 per-host FIFO 台账；
-  - 一个 `globalThis.fetch` 包装消费台账：命中亲和 host（默认 `opencode.ai`，
-    含子域）的出站请求被盖写 `x-opencode-session: dsh-<12位摘要>`——令牌为
-    会话 id 的 SHA-256 域分隔摘要，**同一会话跨轮次稳定、不同会话互不相同、
-    不可逆推**；队列为空时回退到该 host 最近使用的令牌（辅助调用、标题生成
-    等同会话延续同一桶）；
-  - 配对依据：适配器 `maxRetries: 0`，每条模型流的 waterfall 触发与 wire
-    fetch 恰好一一对应，且 waterfall 回调先于该流的 fetch 同步执行。**并发
-    边界（如实说明）**：同一 host 上不同会话的流真正并发交错时，FIFO 可能瞬
-    时互换令牌，下一次请求自纠；网关契约（头存在、会话内值稳定）仍然成立。
-    台账不依赖异步上下文——AsyncLocalStorage 实测会在 pi-ai 适配器内部
-    await 链上丢失，故不采用；
-  - 三条协议路线（openai-completions / openai-responses / anthropic-messages）
-    都走同一 wire，全部生效；非会话出站请求（网页检索等）不受影响。
-- **与手动请求头的关系**：卡片「请求头」区是通用编辑器，按需手动添加任意头
-  （含 `x-opencode-session` 固定值——pi-ai schema 原生 `providers.<route>.headers`，
-  Fetch 合法性校验）。手动同名头在**非会话流**（如模型目录拉取）仍然发出；
-  会话流中会被 wire 层的会话注入覆盖（会话注入总是更优）。
+- **自建头优先：`{{session}}` 占位符（推荐的精确控制方式）**：在卡片「请求头」区
+  自建一行（如 `x-opencode-session`），值填 `{{session}}`——**每次请求由插件在
+  wire 层替换为当前 DSH 会话的 SHA-256 稳定标识**（`dsh-` + 12 位 base36，
+  同会话跨轮次不变、异会话互不相同、不可逆推）。占位符可出现在任意头的
+  任意位置（含多次出现）；对 host 名单没有要求（任何提供方都可用）；
+  固定值则**原样发送**——自建值（占位或固定）优先于自动注入。
+  非会话流（无 sessionId 可用，如模型目录拉取）中，占位符用该 host 最近
+  会话的令牌兜底；完全无令牌可用的极端情况下该头被**丢弃**（绝不把字面
+  `{{session}}` 发给网关）。
+- **自动注入（未自建该头时的缺省）**：提供方 `baseURL` 的 host 命中亲和名单
+  （默认 `opencode.ai`，含子域）且卡片里未自建 `x-opencode-session` 时，
+  wire 层自动盖写同一个会话令牌。三块机制：`llm/stream` waterfall（跨插件
+  须 global 注册）读每流 `sessionId`（dsh-agent-loop 注入）→ **同步**登记
+  per-host FIFO 台账 → `globalThis.fetch` 包装消费并盖章。配对依据：适配器
+  `maxRetries: 0`（每流恰一次 wire fetch）且 waterfall 回调先于该流 fetch
+  同步执行；队空回退 host 最近令牌（标题生成等辅助调用延续同桶）。**并发
+  边界（如实说明）**：同 host 异会话的流真正并发交错时 FIFO 可能瞬时互换
+  令牌，下一次请求自纠；AsyncLocalStorage 实测会在 pi-ai 适配器内部
+  await 链丢失，故不采用。三条协议路线（openai-completions /
+  openai-responses / anthropic-messages）都走同一 wire，全部生效；
+  非会话出站请求（网页检索等）不受影响。
 - **与同类插件的关系**：与 dsh.pub 上 `dsh-opencode-session-id` 类 wire 层注入插件
   功能重叠；同时安装时后安装的 fetch 包装在外层生效（会互相覆盖同名头）。
 
