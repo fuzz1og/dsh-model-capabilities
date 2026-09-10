@@ -45,6 +45,8 @@ dsh --profile web
 ```
 
 安装后**重启 web profile**（Settings → 重启 或 `dsh --profile web`）生效。
+桥走软依赖（`ctx.inject(['webServer'], …)`）：装在 headless / tui 等没有 web
+服务的 profile 里也不会阻塞启动，只是该 profile 不提供这张设置卡片。
 
 ## 使用
 
@@ -82,21 +84,38 @@ dsh --profile web
 
 ## 兼容性
 
-- 目标 DSH：`0.1.2-rc.1`（实测运行中）；`0.1.3-alpha.1` 经源码级核对：
-  `settings.models.provider-card` 槽位契约、`llm-pi-ai` 设置节 schema、
-  settings 服务通路均无变更（仅 discovery 增强，与本插件互补不重叠）。
-- `providers.<route>.headers` 字段在 `0.1.2-rc.1` 的 pi-ai schema 中源码级核实
-  （`z.dict(z.string())` + `assertValidHeaders` Fetch 合法性校验；经
-  `requestHeaders(profile.headers)` 最后合并，`user-agent` 为保留头）。
-- 静态头链路在 `0.1.2-rc.1` 源码级核实：`providers.<route>.headers`
-  （`z.dict(z.string())` + `assertValidHeaders` Fetch 合法性校验）经
-  `requestHeaders(profile.headers)` **最后合并**进每条协议路线的请求，
-  `user-agent` 为保留头。0.4.x–0.5.0 的 wire 层动态注入（waterfall + fetch
-  包装 + FIFO 台账）已实测可行并于 0.6.0 移除；如需恢复参考对应 tag 的源码。
+- **目标 DSH：`0.1.5-rc.1`**（本机实测运行版本）。经源码与实时 Inspect 核对：
+  - `settings.models.provider-card` 槽位仍为 keyed，key = 设置命名空间
+    （`llm-pi-ai`）；owner props 为 `{ provider: ProviderDirectoryEntry,
+    configured, keyConfigured }`，其中 `provider.provider` 仍是路由 id
+    （本插件读法不变）。
+  - 官方原子仍全部可用：`Button / Pill / Input / Menu / DisclosureRow /
+    StateDot / IconChevronDownOutline14 / IconThinkOutline16`；shell 的模块表
+    继续提供 `@deepseek-ai/dsh-client-ui-primitives` 与 `…-ui-slots`
+    （它们已不是可安装包，因此不再写进 `dsh.client.inject`）；shell 使用
+    React 18.3.1，`peerDependencies.react ^18.2.0` 仍准确。
+  - 主题令牌：`--dsw-alias-label-{primary,secondary,tertiary}`、
+    `--dsw-alias-border-l2`、`--dsw-alias-state-{error,success}-primary`、
+    `--ds-font-family-code` 均存在（tertiary 与官方 muted 文本用法一致）。
+  - `llm-pi-ai` 设置节 schema 未变：`providers.<route>.headers`
+    （`z.dict(z.string())` + `assertValidHeaders` Fetch 校验）经
+    `requestHeaders(profile.headers)` 最后合并；`user-agent` 为保留头。
+  - settings 服务通路未变：`get(ns)` / `mutate(ns, ops, expectedRevision)`；
+    新增（0.1.5 起）`settings/document-updated(ns, revision)` 事件——本插件
+    用它维护 revision 缓存，避免每次请求都调 `describe()`。
 - 依赖客户端运行时与官方 `settings.models.provider-card` 槽位（0.1.x 系列）；
   若上游改列槽位协议，需按新契约调整注册。
-- UI 基于官方 `@deepseek-ai/dsh-client-ui-primitives`（Button / Pill / Input /
-  Menu / DisclosureRow / StateDot）与 `--dsw-*` 令牌，浅色/深色自动跟随应用主题。
+
+## 性能设计
+
+- **revision 缓存**：GET 视图的防冲突 revision 不再每请求 `describe()` 计算
+  （该调用会克隆每个命名空间并序列化其 schema，Models 页按提供方数量放大）；
+  改为激活时 `describe()` 播种一次 + 订阅 `settings/document-updated` 增量更新。
+  写冲突（409）时主动失效缓存，下一次读重新播种，不会陷入陈旧围栏循环。
+- **写入单次往返**：POST 成功后直接返回提交后的视图，浏览器半边就地更新
+  （不再二次 GET，也没有「加载中」闪断）。
+- **前端 SWR**：每个提供方的视图在客户端缓存，卡片重挂载先画缓存再后台
+  静默校验（失败才报错），避免来回切设置页时的空白与闪烁。
 
 ## 卸载 / 停用
 
