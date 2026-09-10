@@ -1,7 +1,7 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.5.0",
-  "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities, gateway compat switches and custom request headers with the {{session}} placeholder (auto-filled per request with the current DSH session SHA-256 token; opencode Go session affinity), plus automatic stamping on matching hosts. 模型能力：思考强度/模态/兼容开关/自定义请求头（{{session}} 占位按会话自动填充）。",
+  "version": "0.6.0",
+  "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities, gateway compat switches and static custom request headers (e.g. a fixed x-opencode-session) for custom llm-pi-ai providers, edited inside the official Models settings card. 模型能力：思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关 / 静态自定义请求头。",
   "type": "module",
   "license": "MIT",
   "repository": {
