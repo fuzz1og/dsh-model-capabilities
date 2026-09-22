@@ -1,7 +1,7 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.9.0",
-  "description": "DSH web plugin: automatic thinking-tier defaults (off/low/high/max) for custom llm-pi-ai provider models plus per-model capability tiers, provider default reasoning, modalities, gateway compat switches and static custom request headers. 模型能力：思考档位默认注入 / 思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关 / 静态自定义请求头。",
+  "version": "0.10.0",
+  "description": "DSH web plugin: a dedicated 模型能力 settings page (per-provider request headers and gateway compat switches, including catalog routes) plus automatic thinking-tier defaults and the inline Models-card editor. 模型能力：独立设置页（请求头 / 兼容开关）+ 思考档位默认注入 + Models 卡片内逐模型能力编辑。",
   "type": "module",
   "license": "MIT",
   "repository": {

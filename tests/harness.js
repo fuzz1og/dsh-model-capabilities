@@ -10,18 +10,28 @@ export const wire = (value) => JSON.parse(JSON.stringify(value));
 // The real factory, component event handlers, snapshots and Host routes execute.
 export function client(fetch) {
   let factory;
-  const states = [];
-  let cursor = 0;
+  // Hook state is per COMPONENT, as React has it. A single shared array would
+  // collide the page's (index, selected, status) with the editor's (snap, busy,
+  // …) as soon as one composes the other, which the settings page does.
+  const hooks = new Map();
+  // A direct call like `ui.Select(props)` (used to inspect a sub-component's
+  // output) has no owning slot; it gets one scratch slot instead of crashing.
+  const scratch = { states: [], cursor: 0 };
+  let current = null;
+  // Effects collected rather than run: a test decides when to flush them, so the
+  // page's index load is observable instead of racing the assertion.
+  const effects = [];
   const React = {
     createElement(type, props, ...children) {
       return { type, props: { ...props, ...(children.length ? { children: children.flat(Infinity) } : {}) } };
     },
     useState(initial) {
-      const index = cursor++;
-      if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial;
-      return [states[index], (next) => { states[index] = typeof next === 'function' ? next(states[index]) : next; }];
+      const slot = current ?? scratch;
+      const index = slot.cursor++;
+      if (!(index in slot.states)) slot.states[index] = typeof initial === 'function' ? initial() : initial;
+      return [slot.states[index], (next) => { slot.states[index] = typeof next === 'function' ? next(slot.states[index]) : next; }];
     },
-    useEffect() {},
+    useEffect(fn) { effects.push(fn); },
   };
   const atoms = Object.fromEntries(['Button', 'Pill', 'Input', 'Menu', 'DisclosureRow', 'StateDot'].map((name) => [name, name]));
   vm.runInNewContext(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'), {
@@ -32,13 +42,65 @@ export function client(fetch) {
     } } },
   });
   const mod = factory((name) => name === 'react' ? React : atoms);
+
+  /** Invoke one component with its own hook slot and a fresh cursor. */
+  function run(component, props) {
+    if (!hooks.has(component)) hooks.set(component, { states: [], cursor: 0 });
+    const slot = hooks.get(component);
+    slot.cursor = 0;
+    const previous = current;
+    current = slot;
+    try {
+      return component(props);
+    } finally {
+      current = previous;
+    }
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
   return {
     ui: mod.__internals,
-    snapshot: () => states[0],
+    snapshot: () => hooks.get(mod.__internals.ModelCapabilities)?.states[0],
+    /** Slot for the inline editor, created on demand so a test may seed before the first render. */
+    editorSlot() {
+      if (!hooks.has(mod.__internals.ModelCapabilities)) hooks.set(mod.__internals.ModelCapabilities, { states: [], cursor: 0 });
+      return hooks.get(mod.__internals.ModelCapabilities);
+    },
     render(snapshot) {
-      if (snapshot !== undefined) states[0] = snapshot;
-      cursor = 0;
-      return mod.__internals.ModelCapabilities({ provider: { provider: 'test' }, configured: true });
+      if (snapshot !== undefined) this.editorSlot().states[0] = snapshot;
+      return run(mod.__internals.ModelCapabilities, { provider: { provider: 'test' }, configured: true });
+    },
+    /**
+     * Mount the inline editor for a route and settle its own load, so the tree
+     * reflects a fetched view rather than the loading state. `snapshot` seeds the
+     * first paint exactly as a cached view would.
+     */
+    async renderEditor(props = { provider: { provider: 'test' }, configured: true }, snapshot) {
+      if (snapshot !== undefined) this.editorSlot().states[0] = snapshot;
+      effects.length = 0;
+      run(mod.__internals.ModelCapabilities, props);
+      for (const fn of effects) fn();
+      await settle();
+      await settle();
+      effects.length = 0;
+      return run(mod.__internals.ModelCapabilities, props);
+    },
+    /** Render the standalone settings page and settle its index load. */
+    async renderPage() {
+      effects.length = 0;
+      run(mod.__internals.ModelCapabilitiesPage, {});
+      // The effect kicks off an async load and returns undefined (as a real
+      // effect does), so its promise is not awaitable: run the effects, then
+      // let the fetch/JSON microtasks settle before re-rendering.
+      for (const fn of effects) fn();
+      await settle();
+      await settle();
+      effects.length = 0;
+      return run(mod.__internals.ModelCapabilitiesPage, {});
+    },
+    /** Re-render the page with the state it already holds (no load flush). */
+    rerenderPage() {
+      return run(mod.__internals.ModelCapabilitiesPage, {});
     },
   };
 }

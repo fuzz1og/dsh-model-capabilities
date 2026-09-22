@@ -17,6 +17,19 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
   （`assertServiceable`：非法的协议/档位组合会在写入处就被拒绝）。
 - Host 面仅提供同源 HTTP 桥；无自有持久数据（`llm-pi-ai` 命名空间属主是 pi-ai 适配器）。
 
+## 独立设置页（0.10.0）
+
+Settings → **模型能力**（`settings.section`，order 16，紧跟 Models 之后）：左列列出全部
+llm-pi-ai 提供方（自定义 / 目录 标记、模型清单、已配置状态），右列复用与 Models 卡片
+**同一个**编辑器。用途是补官方那两个够不到的位置：
+
+- **自定义提供方在创建时没有扩展位**：官方自定义创建卡片走 `mounted("custom")` 分支，
+  该分支内 `renderSlot` 出现 0 次，所以创建过程中插件卡片无法出现；创建后到这里即可配置。
+- **目录（catalog）路由没有存储的 `models` 清单**：官方编辑器因此够不到它**仍然拥有**的
+  路由级字段。现在这里可以编辑它的请求头与兼容开关，而不再是一条死路。
+
+路由级编辑（请求头 / 兼容设置）对两类提供方都可用；逐模型能力仍在 Models 页卡片里编辑。
+
 ## 思考档位默认注入（0.9.0，无需操作）
 
 **官方缺口**：dsh 0.1.7 给 `contextWindow`、`maxTokens`、`input` 都留了路由级兜底
@@ -94,6 +107,9 @@ dsh --profile web
 4. 点火失败（网关 400）时，在「兼容设置」里按上游文档修正，例如
    `developer 角色: 不支持（用 system）`、`maxTokensField: max_tokens`。
 5. 点「应用能力配置」→ 写入成功显示绿色提示；冲突/校验拒绝会显示原因（冲突后视图自动刷新，可直接重试）。
+
+也可以全部在 **Settings → 模型能力** 独立页完成（见上）：左列选提供方，右列是同一个编辑器；
+自定义提供方创建后、以及目录路由的请求头/兼容设置，走这一页最直接。
 
 ## opencode Go 的 x-opencode-session（固定头即可）
 

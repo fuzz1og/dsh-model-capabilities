@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Readable } from 'node:stream';
 import {
   DEFAULT_REASONING_EFFORTS,
   DEFAULT_REASONING_KEYS,
@@ -299,4 +300,51 @@ test('a route-level-only save never rewrites an existing models list', async () 
   // The models array is untouched: no op was emitted for it.
   assert.deepEqual(host.stored().models, before);
   assert.deepEqual(host.stored().headers, { 'x-only': 'v' });
+});
+
+test('the providers index lists every route with the identity a two-pane page needs', async () => {
+  // The standalone settings page renders this in one request. `declared` must
+  // come from the adapter (the same signal the tier injector trusts), and a
+  // route only the stored document has is still listed.
+  const events = [];
+  let handler;
+  const section = {
+    providers: {
+      gateway: { models: [{ id: 'a' }, { id: 'b' }], headers: { 'x-one': '1' }, compat: { supportsStore: true } },
+      catalog: { api: 'anthropic-messages', baseURL: 'https://api.anthropic.com' },
+    },
+  };
+  const settings = { describe: () => [{ ns: 'llm-pi-ai', revision: 4, value: section }] };
+  const { apply } = await import('../lib/index.js');
+  apply({
+    get: (name) => (name === 'settings'
+      ? settings
+      : (name === 'llm'
+        ? { listConfigurableProviders: () => [{ provider: 'gateway', displayName: 'Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'gateway'], declared: true }, { provider: 'catalog', displayName: 'Catalog', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'catalog'], declared: false }] }
+        : undefined)),
+    effect: (fn) => fn(),
+    on: (name, listener) => { events.push(name); return () => {}; },
+    inject: (services, register) => register({
+      effect: (fn) => fn(),
+      webServer: { register: (route) => { handler = route.handler; } },
+    }),
+  });
+  const req = Readable.from([]);
+  req.method = 'GET';
+  req.url = '/model-capabilities/providers';
+  let json;
+  await handler(req, { writeHead: () => {}, end: (body) => { json = JSON.parse(body); } });
+  assert.equal(json.ok, true);
+  assert.equal(json.revision, 4);
+  assert.deepEqual(json.providers.map((p) => p.provider), ['catalog', 'gateway']);
+  const gateway = json.providers.find((p) => p.provider === 'gateway');
+  assert.equal(gateway.declared, true);
+  assert.equal(gateway.hasModelsList, true);
+  assert.deepEqual(gateway.modelIds, ['a', 'b']);
+  assert.equal(gateway.headerCount, 1);
+  assert.equal(gateway.compatCount, 1);
+  const catalog = json.providers.find((p) => p.provider === 'catalog');
+  assert.equal(catalog.declared, false);
+  assert.equal(catalog.hasModelsList, false);
+  assert.deepEqual(catalog.modelIds, []);
 });
