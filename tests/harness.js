@@ -59,7 +59,12 @@ export function nodes(tree, predicate) {
  * revision together, one row per active settings entry.
  */
 export function bridge(compat = {}, options = {}) {
-  let section = { providers: { test: { models: [{ id: 'test', name: 'Test', compat: { modelOnly: true } }], compat, headers: { 'x-existing': 'keep' } } } };
+  // `options.catalogProvider` mounts a route the way a catalog route looks from
+  // the settings document: no stored `models` list at all, but it still owns
+  // route-level fields (headers, compat). Route-level edits must work there.
+  let section = options.catalogProvider === true
+    ? { providers: { test: { api: 'openai-completions', baseURL: 'https://catalog.invalid/v1', headers: { 'x-existing': 'keep' } } } }
+    : { providers: { test: { models: [{ id: 'test', name: 'Test', compat: { modelOnly: true } }], compat, headers: { 'x-existing': 'keep' } } } };
   let revision = 7;
   let handler;
   let rejection;

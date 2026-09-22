@@ -268,3 +268,35 @@ test('the plugin subscribes to settings pushes for its namespace only', async ()
   });
   assert.equal(mutated, 0);
 });
+
+test('route-level edits work on a catalog route, which stores no models list', async () => {
+  // A catalog route declares no models, but still owns headers/compat/reasoning.
+  // The standalone settings page edits route-level fields there, so the bridge
+  // must not refuse the whole request for want of a models list — and must not
+  // materialize one either, which would replace the served catalog.
+  const host = bridge({}, { catalogProvider: true });
+  // Headers only: previously this was 409 profile-has-no-models-list.
+  const saved = await host.request('POST', { provider: 'test', revision: 7, headers: { 'x-probe': 'v' } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(host.stored().headers, { 'x-probe': 'v' });
+  assert.equal('models' in host.stored(), false);
+  // Compat rides the same path.
+  const compatSaved = await host.request('POST', { provider: 'test', revision: 8, compatPatch: { supportsStore: true } });
+  assert.equal(compatSaved.status, 200);
+  assert.deepEqual(host.stored().compat, { supportsStore: true });
+  assert.equal('models' in host.stored(), false);
+  // A per-model edit still requires the stored list, and says so.
+  const refused = await host.request('POST', { provider: 'test', revision: 9, models: [{ id: 'x' }] });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.json.error, 'profile-has-no-models-list');
+});
+
+test('a route-level-only save never rewrites an existing models list', async () => {
+  const host = bridge({});
+  const before = host.stored().models;
+  const saved = await host.request('POST', { provider: 'test', revision: 7, headers: { 'x-only': 'v' } });
+  assert.equal(saved.status, 200);
+  // The models array is untouched: no op was emitted for it.
+  assert.deepEqual(host.stored().models, before);
+  assert.deepEqual(host.stored().headers, { 'x-only': 'v' });
+});
