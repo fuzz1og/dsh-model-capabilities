@@ -181,3 +181,71 @@ test('a route with a stored list keeps the per-model editor and its save gate', 
   assert.equal(save.length, 1);
   assert.equal(save[0].props.disabled, false);
 });
+
+test('the default selection prefers a configured route over an unconfigured catalog one', async () => {
+  // The list is alphabetical, so its first row is almost always an unconfigured
+  // catalog route — which the editor answers with `provider-not-found`. Opening
+  // on that is a bad first impression, so a configured custom route wins.
+  const { fetch } = indexFetch([
+    row('aaa-catalog', { declared: false, configured: false, hasModelsList: false }),
+    row('bbb-catalog', { declared: false, configured: false, hasModelsList: false }),
+    row('zzz-gateway', { declared: true, configured: true }),
+  ]);
+  const browser = client(fetch);
+  const tree = await browser.renderPage();
+  const editors = nodes(tree, (node) => node.type === browser.ui.ModelCapabilities);
+  assert.equal(editors.length, 1, 'a configured route must be selected, not an unconfigured one');
+  assert.equal(editors[0].props.provider.provider, 'zzz-gateway');
+});
+
+test('unconfigured routes are hidden by default and revealed by the toggle', async () => {
+  // ~40 shipped catalog routes have no stored profile; listing them all buries
+  // the routes a user owns, and each one would error if selected.
+  const { fetch } = indexFetch([
+    row('catalog-a', { declared: false, configured: false, hasModelsList: false }),
+    row('gateway', { declared: true, configured: true }),
+  ]);
+  const browser = client(fetch);
+  const tree = await browser.renderPage();
+  const navRows = () => nodes(tree, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'));
+  // Only the configured route is listed...
+  assert.equal(navRows().length, 1);
+  assert.match(textOf(tree), /已配置 1/);
+  assert.match(textOf(tree), /全部 2/);
+
+  // ...until the toggle asks for everything.
+  const all = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('全部'));
+  assert.equal(all.length, 1);
+  all[0].props.onClick();
+  const expanded = browser.rerenderPage();
+  const expandedRows = nodes(expanded, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'));
+  assert.equal(expandedRows.length, 2);
+});
+
+test('selecting an unconfigured route explains itself instead of erroring', async () => {
+  // With the toggle on, an unconfigured route can be selected. It has no stored
+  // profile, so the editor's GET would 404: say that plainly and point at the
+  // official page rather than rendering a bare `provider-not-found`.
+  const { fetch, calls } = indexFetch([
+    row('catalog-a', { declared: false, configured: false, hasModelsList: false, displayName: 'Catalog A' }),
+    row('gateway', { declared: true, configured: true }),
+  ]);
+  const browser = client(fetch);
+  let tree = await browser.renderPage();
+  const all = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('全部'));
+  all[0].props.onClick();
+  tree = browser.rerenderPage();
+  const catalogRow = nodes(tree, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'))
+    .find((node) => textOf(node).includes('Catalog A'));
+  assert.ok(catalogRow !== undefined, 'catalog row not found after expanding');
+  catalogRow.props.onClick();
+  tree = browser.rerenderPage();
+
+  // Guidance, not the editor and not an error.
+  assert.match(textOf(tree), /尚未配置/);
+  assert.match(textOf(tree), /官方 Models 页/);
+  assert.equal(nodes(tree, (node) => node.type === browser.ui.ModelCapabilities).length, 0);
+  assert.doesNotMatch(textOf(tree), /provider-not-found/);
+  // And no request was made for a profile that cannot exist.
+  assert.equal(calls.filter((url) => url.includes('provider=catalog-a')).length, 0);
+});
