@@ -249,3 +249,83 @@ test('selecting an unconfigured route explains itself instead of erroring', asyn
   // And no request was made for a profile that cannot exist.
   assert.equal(calls.filter((url) => url.includes('provider=catalog-a')).length, 0);
 });
+
+test('the build contributes exactly one surface: the settings page', async () => {
+  // The inline `settings.models.provider-card` cell was removed once the page
+  // could reach every route. Two surfaces editing the same fields invite drift,
+  // and the card could never render during a custom provider's creation anyway.
+  const browser = client(indexFetch([]).fetch);
+  const registrations = browser.applySlots();
+  assert.deepEqual(registrations.map((r) => r.name), ['settings.section']);
+  assert.equal(
+    registrations.some((r) => r.name === 'settings.models.provider-card'),
+    false,
+    'the inline Models-card cell must no longer be contributed',
+  );
+  const page = registrations[0];
+  assert.equal(page.id, 'model-capabilities');
+  assert.equal(page.order, 16);
+  assert.equal(page.label, '模型能力');
+});
+
+test('every disclosure row is given the icon its contract requires', async () => {
+  // DisclosureRow's `icon` is a required prop. Omitting it left an empty 16px
+  // leading box, and the hover chevron then swapped in from nothing.
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1', input: [] }] });
+  const browser = client(fetch);
+  const tree = await browser.renderEditor(
+    { provider: { provider: 'gateway' }, configured: true },
+    browser.ui.loadView(3, {
+      hasModelsList: true,
+      reasoning: null,
+      defaultInput: [],
+      compat: null,
+      compatHidden: [],
+      baseURL: null,
+      headers: null,
+      models: [{ id: 'm1', input: [] }],
+    }),
+  );
+  const rows = nodes(tree, (node) => node.type === 'DisclosureRow');
+  assert.ok(rows.length >= 3, `expected the compat, headers and model rows, got ${rows.length}`);
+  for (const row of rows) {
+    assert.ok(row.props.icon !== undefined && row.props.icon !== null, `a disclosure row has no icon: ${row.props.title}`);
+  }
+});
+
+test('collapsed summaries are told to shrink, so they cannot wrap in the 24px row', async () => {
+  // A disclosure row is a fixed 24px flex line whose children are `flex: none`.
+  // A long summary therefore wrapped to several lines and `overflow: hidden`
+  // sliced it into overlapping text (measured: a 54px summary in a 24px row).
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1', input: [] }] });
+  const browser = client(fetch);
+  const tree = await browser.renderEditor(
+    { provider: { provider: 'gateway' }, configured: true },
+    browser.ui.loadView(3, {
+      hasModelsList: true,
+      reasoning: null,
+      defaultInput: [],
+      compat: null,
+      compatHidden: [],
+      baseURL: null,
+      headers: null,
+      models: [{ id: 'm1', input: [] }],
+    }),
+  );
+  const rows = nodes(tree, (node) => node.type === 'DisclosureRow');
+  // The text-bearing summaries must carry the shrink+ellipsize class...
+  const summaries = rows
+    .map((row) => row.props.collapsedContent)
+    .filter((content) => content !== undefined && content !== null);
+  assert.ok(summaries.length >= 2, 'expected collapsed summaries');
+  for (const content of summaries) {
+    const cls = String(content.props?.className ?? '');
+    assert.ok(
+      cls.includes('mc-collapsed') || cls.includes('mc-modelSummary'),
+      `a collapsed summary cannot shrink: "${cls}"`,
+    );
+  }
+  // ...and the model summary must not wrap its pills.
+  const pillSummary = summaries.find((c) => String(c.props?.className).includes('mc-modelSummary'));
+  assert.ok(pillSummary !== undefined, 'model summary not found');
+});

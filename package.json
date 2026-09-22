@@ -1,7 +1,7 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.10.0",
-  "description": "DSH web plugin: a dedicated 模型能力 settings page (per-provider request headers and gateway compat switches, including catalog routes) plus automatic thinking-tier defaults and the inline Models-card editor. 模型能力：独立设置页（请求头 / 兼容开关）+ 思考档位默认注入 + Models 卡片内逐模型能力编辑。",
+  "version": "0.11.0",
+  "description": "DSH web plugin: a dedicated 模型能力 settings page (per-provider request headers, gateway compat switches and per-model capabilities, including catalog routes) plus automatic thinking-tier defaults. 模型能力独立设置页 + 思考档位默认注入。",
   "type": "module",
   "license": "MIT",
   "repository": {

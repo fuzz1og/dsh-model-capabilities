@@ -33,7 +33,7 @@ test('installed pi-ai offer/withhold gates, profile, schema and enums match this
   assert.ok(adapterPath, 'DSH_PI_AI_PATH is required for test:parity when pi-ai is not locally resolvable');
   const manifest = JSON.parse(readFileSync(join(adapterPath, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@deepseek-ai/dsh-llm-pi-ai');
-  assert.equal(manifest.version, '0.1.7-alpha.1', 'Re-audit offer/withhold and update the pinned compatibility target');
+  assert.equal(manifest.version, '0.1.7-alpha.2', 'Re-audit offer/withhold and update the pinned compatibility target');
   const declarations = readFileSync(join(adapterPath, 'lib/types/catalog.d.ts'), 'utf8');
   const source = readFileSync(join(adapterPath, 'lib/index.js'), 'utf8');
   const gates = [...declarations.matchAll(/declare const (\w+_COMPAT_GATE): \{([\s\S]*?)\n\};/g)];

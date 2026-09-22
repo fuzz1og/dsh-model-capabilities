@@ -33,7 +33,17 @@ export function client(fetch) {
     },
     useEffect(fn) { effects.push(fn); },
   };
-  const atoms = Object.fromEntries(['Button', 'Pill', 'Input', 'Menu', 'DisclosureRow', 'StateDot'].map((name) => [name, name]));
+  // Atoms the bundle resolves at runtime. The icon names are the ones the
+  // installed 0.1.7-alpha.1 primitives actually export (verified in the package
+  // bundle), so an icon fallback chain resolves here exactly as it does in the
+  // browser instead of collapsing to `undefined` and hiding a missing icon.
+  const atoms = Object.fromEntries([
+    'Button', 'Pill', 'Input', 'Menu', 'DisclosureRow', 'StateDot',
+    'IconChevronDownOutlineRegular',
+    'IconThinkOutlineRegular',
+    'IconSlidersTwoOutlineRegular',
+    'IconLinkOutlineRegular',
+  ].map((name) => [name, name]));
   vm.runInNewContext(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'), {
     fetch,
     window: { __ModuleLoader__: { load: (entry) => {
@@ -101,6 +111,21 @@ export function client(fetch) {
     /** Re-render the page with the state it already holds (no load flush). */
     rerenderPage() {
       return run(mod.__internals.ModelCapabilitiesPage, {});
+    },
+    /**
+     * Run the real `apply` against a capturing ctx and return every slot
+     * registration it made, so the surface a build contributes is assertable.
+     */
+    applySlots() {
+      const registrations = [];
+      mod.apply({
+        effect: (fn) => { fn(); },
+        slots: {
+          inject: (slot, contribute) => { contribute(); },
+          register: (options) => { registrations.push(options); },
+        },
+      });
+      return registrations;
     },
   };
 }
