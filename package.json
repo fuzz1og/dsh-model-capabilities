@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "DSH web plugin: per-model thinking-intensity tiers, provider default reasoning, modalities, gateway compat switches and static custom request headers for custom llm-pi-ai providers, edited inside the official Models settings card. 模型能力：思考强度档位 / 默认思考强度 / 支持模态 / 兼容开关 / 静态自定义请求头。",
   "type": "module",
   "license": "MIT",
@@ -35,7 +35,15 @@
       "platform": "web"
     }
   },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:parity": "DSH_REQUIRE_PI_AI_PARITY=1 node --test tests/parity.test.js",
+    "check": "node --check lib/index.js && node --check lib/client.js"
+  },
   "peerDependencies": {
     "react": "^18.2.0"
+  },
+  "engines": {
+    "dsh": "^0.1.7-alpha.1"
   }
 }

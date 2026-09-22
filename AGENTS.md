@@ -10,8 +10,11 @@ repository's own security, testing, and release rules remain authoritative.
 
 - `lib/index.js` — Host module (ESM, committed artifact, no build step). Owns
   the same-origin HTTP bridge: GET/POST `/model-capabilities` against the
-  `llm-pi-ai` settings namespace through `ctx.settings` (read via `get()` +
-  `describe()` revision, write via `mutate()`).
+  `llm-pi-ai` settings entry through `ctx.settings` (read via `describe()`,
+  which yields the entry's `value` and `revision` together; write via
+  `mutate()`). Do NOT call `settings.get(ns)` or `settings.register(...)`:
+  both were removed in dsh 0.1.7-alpha.1, where a settings namespace IS a
+  profile entry's own Config.
 - `lib/client.js` — Web client, hand-written in the DSH loader's lazy-CJS
   factory form: `window.__ModuleLoader__.load({ id, factory })`. The factory
   resolves `react` and `@deepseek-ai/dsh-client-ui-primitives` at runtime
@@ -34,3 +37,9 @@ repository's own security, testing, and release rules remain authoritative.
   verbatim in the UI; never report an optimistic write as durable.
 - Before changing the slot registration, re-inspect the live
   `settings.models.provider-card` contract in the target DSH version.
+- Before relying on any `@deepseek-ai/dsh-client-ui-primitives` export, confirm
+  the name exists in the installed client bundle. Icon exports are
+  thickness-suffixed pairs (`…OutlineRegular` / `…OutlineMedium` as of
+  0.1.7-alpha.1) and have been renamed between releases; resolve new names first
+  with old ones as fallbacks so a rename degrades to a working icon rather than
+  silently to `undefined`.

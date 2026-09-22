@@ -26,7 +26,7 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 | 提供方 · 默认思考强度 | `providers.<route>.reasoning` |
 | 提供方 · 默认模态 | `providers.<route>.defaultInput` |
 | 提供方 · 请求头（按需手动添加） | `providers.<route>.headers`（名称统一小写，值原样发送；`user-agent` 由 DSH 归属头占用，不可设置） |
-| 兼容设置：developer 角色 / reasoning_effort / 输出上限字段 / 思考格式 | `providers.<route>.compat.{supportsDeveloperRole,supportsReasoningEffort,maxTokensField,thinkingFormat}` |
+| 提供方 · 兼容设置（19 布尔 / 4 枚举 / 1 整数；详见兼容性） | `providers.<route>.compat`（逐键合并） |
 
 ## 安装
 
@@ -84,27 +84,30 @@ dsh --profile web
 
 ## 兼容性
 
-- **目标 DSH：`0.1.5-rc.1`**（本机实测运行版本）。经源码与实时 Inspect 核对：
-  - `settings.models.provider-card` 槽位仍为 keyed，key = 设置命名空间
-    （`llm-pi-ai`）；owner props 为 `{ provider: ProviderDirectoryEntry,
-    configured, keyConfigured }`，其中 `provider.provider` 仍是路由 id
-    （本插件读法不变）。
-  - 官方原子仍全部可用：`Button / Pill / Input / Menu / DisclosureRow /
-    StateDot / IconChevronDownOutline14 / IconThinkOutline16`；shell 的模块表
-    继续提供 `@deepseek-ai/dsh-client-ui-primitives` 与 `…-ui-slots`
-    （它们已不是可安装包，因此不再写进 `dsh.client.inject`）；shell 使用
-    React 18.3.1，`peerDependencies.react ^18.2.0` 仍准确。
-  - 主题令牌：`--dsw-alias-label-{primary,secondary,tertiary}`、
-    `--dsw-alias-border-l2`、`--dsw-alias-state-{error,success}-primary`、
-    `--ds-font-family-code` 均存在（tertiary 与官方 muted 文本用法一致）。
-  - `llm-pi-ai` 设置节 schema 未变：`providers.<route>.headers`
-    （`z.dict(z.string())` + `assertValidHeaders` Fetch 校验）经
-    `requestHeaders(profile.headers)` 最后合并；`user-agent` 为保留头。
-  - settings 服务通路未变：`get(ns)` / `mutate(ns, ops, expectedRevision)`；
-    新增（0.1.5 起）`settings/document-updated(ns, revision)` 事件——本插件
-    用它维护 revision 缓存，避免每次请求都调 `describe()`。
-- 依赖客户端运行时与官方 `settings.models.provider-card` 槽位（0.1.x 系列）；
-  若上游改列槽位协议，需按新契约调整注册。
+- **当前适配目标：DSH `0.1.7-alpha.1` / `@deepseek-ai/dsh-llm-pi-ai 0.1.7-alpha.1`**。验证含本地源码回归、针对**已安装**包的 parity 静态核对（`npm run test:parity`），以及 Host 桥的 revision 栅栏回归；未部署、未重启 profile、未对 live settings 写入，也不声称完成该版本浏览器实测。
+- **0.1.7-alpha.1 适配（v0.8.0）**：`settings.get(ns)` 已从 `@deepseek-ai/dsh-settings` 移除（一个设置命名空间现在是 profile 条目自身的 `Config`）。`lib/index.js` 的读取改经 `settings.describe()`——一次调用同时给出该条目的 `value` 与 `revision`，因此原先按 `settings/document-updated` 事件缓存 revision 的表已删除，栅栏不再可能回放过期值。写入路径 `settings.mutate(ns, ops, revision)` 未变。
+- 客户端原子图标改名（同一版本）：`IconChevronDownOutline14/16` → `…OutlineMedium` / `…OutlineRegular`，`IconThinkOutline16` → `IconThinkOutlineRegular/Medium`。`lib/client.js` 现按新名优先、旧名兜底解析，因此一个 bundle 在改名前后都能取到图标，而不是静默渲染成空。
+- 历史 `0.1.5-rc.1` 槽位/原子实测仅作历史依据。本次未改槽位注册：仍使用 keyed `settings.models.provider-card`、key `llm-pi-ai`、`provider.provider` 路由 id；客户端仍是 lazy-CJS factory，设置经 Host `settings.mutate` revision 防冲突通路。
+- 安装版四个 `*_COMPAT_GATE`、`PiAiCompatProfile`、`compatProfile`（Schemastery，不是 Zod）已逐项对照：**26 个 offer = 24 个可编辑控件 + 2 个未渲染字典；13 个 withhold 不提供编辑**。升级后必须重新跑 parity 并审计。
+
+### compat 提供与保留范围
+
+以下均为提供方级 `providers.<route>.compat` 字段；模型级 compat 只保留，不在此编辑。路由级字段只作用于接受它的协议；“提供控件”不等于每个协议都会发送该字段。
+
+| 分类 | 字段 / 值 |
+|---|---|
+| 19 个布尔 | `supportsStore`, `supportsDeveloperRole`, `supportsReasoningEffort`, `supportsUsageInStreaming`, `supportsFinishReason`, `requiresToolResultName`, `requiresAssistantAfterToolResult`, `requiresThinkingAsText`, `requiresReasoningContentOnAssistantMessages`, `supportsThinkingTokenBudget`, `supportsStrictMode`, `supportsLongCacheRetention`, `supportsMaxOutputTokens`, `supportsEagerToolInputStreaming`, `supportsCacheControlOnTools`, `supportsTemperature`, `forceAdaptiveThinking`, `allowEmptySignature`, `supportsStrictTools` |
+| 输出上限字段 | `maxTokensField`: `max_completion_tokens` / `max_tokens` |
+| 思考格式 | `thinkingFormat`: `openai`, `deepseek`, `openrouter`, `together`, `baseten`, `zai`, `qwen`, `chat-template`, `qwen-chat-template`, `string-thinking`, `ant-ling` |
+| 思考预算字段 | `thinkingTokenBudgetField`: `thinking_token_budget` / `thinking_budget` / `thinking_budget_tokens` |
+| 缓存格式 | `cacheControlFormat`: `anthropic` |
+| 调度优先级 | `vllmPriority`: 可 0 / 负，留空清除；本插件编辑范围 `[-2147483648, 2147483647]`，这是防误输限制，不是上游 schema 上限（上游仅要求整数） |
+| offer 但不渲染 | `chatTemplateArgs`, `chatTemplateKwargs`：上游接受字典，本卡片无字典编辑器；已有值在合并时保留，并显示字段名 |
+| withhold（pi-ai 按厂商目录决定） | `allowedFallbackModels`, `deferredToolsMode`, `openRouterRouting`, `sendSessionAffinityHeaders`, `sessionAffinityFormat`, `supportsAdditionalTools`, `supportsExplicitPromptCacheMode`, `supportsMidConvoEffort`, `supportsOpenAIGrammarTools`, `supportsToolReferences`, `supportsToolSearch`, `vercelGatewayRouting`, `zaiToolStream` |
+
+- **不设置**明确删除该键；**保持原样（KEEP）**不修改该键。Host 保留渲染键的存在性与原始值，客户端不会把未知枚举/错误类型当作缺失而发 `unset`。布尔/枚举选中 KEEP；无法表示的存储整数显示保持提示，可明确清除或输入新值。
+- 未渲染字典、withhold、未知键在 Host 合并候选中保留，不因无关开关编辑被插件丢弃。**这不绕过上游校验**：当前 pi-ai 会拒绝 withheld/未知/非法值；保存仍可能整体失败，错误原文显示，不伪报成功。超出本卡片范围的存储整数本身不阻塞 UI 的无关编辑。
+- `supportsThinkingTokenBudget` 是 `thinkingTokenBudgetField: thinking_token_budget` 的别名，显式字段优先。`supportsMaxOutputTokens` 控制 OpenAI Responses 的 `max_output_tokens`；Azure/Codex 虽共用该 compat 类型但忽略此字段。
 
 ## 性能设计
 
@@ -137,7 +140,19 @@ cordis.patch.yml Bundle patch（挂载行）
 
 - Host 面无构建步骤（提交即产物）。
 - 客户端按 DSH web 客户端模块系统的 factory 契约手写生成：`window.__ModuleLoader__.load({ id, factory })`；`require('react')` / `require('@deepseek-ai/dsh-client-ui-primitives')` 在浏览器端由模块系统解析。
-- 修改后只需替换 `lib/client.js` 并重启 profile。
+- 本地检查（Node 内置测试，无新增依赖）：
+
+```sh
+npm run check
+npm test
+# 指向待核对的已安装 @deepseek-ai/dsh-llm-pi-ai 包目录：
+DSH_PI_AI_PATH=/path/to/dsh-llm-pi-ai npm test
+DSH_PI_AI_PATH=/path/to/dsh-llm-pi-ai npm run test:parity
+```
+
+- `npm test` 在未找到安装包时显式 skip 上游 parity（Host/client parity 与回归仍运行）；`test:parity` 找不到包会失败，供维护/CI 强制核对。测试只读安装包，不启动适配器或写设置。
+- 测试执行实际 Host GET/POST handler、JSON 传输、客户端 snapshot/缓存/patch、组件事件与 KEEP Menu 选中值；外部 React/原子/HTTP/settings 使用内存替身，不是完整浏览器或真实设置服务集成测试。覆盖明确清除、未知/不可表示值、隐藏字段保留、整数边界、conflict 与校验拒绝。
+- 发布/激活是独立步骤：同步 Host 与 client 产物后按目标运行时加载方式重启或重载 profile，并验证实际 GUI。不要把本地 Node 通过当作已部署或 HMR 已更新。
 
 ## License
 
