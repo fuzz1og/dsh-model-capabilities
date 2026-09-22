@@ -5,7 +5,7 @@
 > 支持模态（input / defaultInput）、网关兼容开关（compat）、
 > 静态自定义请求头（headers，按需手动添加，值原样发送——例如固定的
 > `x-opencode-session`）。全部配置经官方 `settings.mutate` 写入
-> `settings.yaml`，**无需手改配置**。
+> `cordis.patch.yml`（profile 的 patch 文档），**无需手改配置**。
 
 A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
 
@@ -17,9 +17,46 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
   （`assertServiceable`：非法的协议/档位组合会在写入处就被拒绝）。
 - Host 面仅提供同源 HTTP 桥；无自有持久数据（`llm-pi-ai` 命名空间属主是 pi-ai 适配器）。
 
+## 思考档位默认注入（0.9.0，无需操作）
+
+**官方缺口**：dsh 0.1.7 给 `contextWindow`、`maxTokens`、`input` 都留了路由级兜底
+（`entry.x ?? base?.x ?? request.defaultX`），**唯独 `reasoningEfforts` 没有第三级** ——
+省略时走 `base?.reasoning ?? false`。于是官方 Models 页新建的**自定义路由**（不在内置
+catalog 的 39 个路由内）只提供 `off` 一档，而官方编辑器又**不渲染**思考强度控件
+（`ui-settings-models` 里 `reasoningEfforts` 出现 0 次）。结果就是「上下文能改、模态能改、
+思考强度改不了」。
+
+**本插件补上这一级**：为**缺少 `reasoningEfforts` 的自定义路由**模型自动写入
+
+```yaml
+reasoningEfforts:
+  off: null     # 支持但不发送参数
+  low: low
+  high: high
+  max: max
+```
+
+（只声明这四档。pi-ai 把**缺失的 key 钉为 `null`**＝不提供，所以键集就是档位集。
+`medium` 刻意不给，需要时在卡片里自行添加。）
+
+写入时机：插件挂载时扫描一次，之后监听 `settings/document-updated`（仅 `llm-pi-ai`）——
+所以**在官方页面新建提供方后立即生效，不用重启**。
+
+安全边界（全部有回归测试）：
+
+- **只补缺失项**：已有 `reasoningEfforts` 的模型一律不动。显式 `false`（非推理模型）和
+  自定义档位（含 `{}`）都算「已声明」，绝不覆盖。
+- **只碰自定义路由**：依据 `ctx.llm.listConfigurableProviders()` 的 `declared === true`。
+  catalog 路由已从 `base?.reasoning` 继承厂商精选档位，注入会把它替换成猜测值，因此跳过。
+- **revision 防冲突**：用与桥相同的 `settings.mutate` + 读到的 revision；并发编辑时干净
+  落败（`SETTINGS_CONFLICT`），由下一次事件重试，绝不覆盖你的改动。
+- **失败不影响启动**：任何异常只记 `warn` 日志后放弃（这是便利功能，不是关键路径）。
+- 写入走 `configEditor.edit` 的**文档级**编辑（`parseDocument` → `setIn`），保留注释与
+  其余条目；原子写，失败回滚。
+
 ## 字段对照
 
-| UI 控件 | 写入 settings.yaml |
+| UI 控件 | 写入位置 |
 |---|---|
 | 模型 · 模态（继承 / 仅文本 / 文本+图像） | `providers.<route>.models[i].input` |
 | 模型 · 思考强度（未设置 / 禁用 / 标准档位 / 自定义） | `models[i].reasoningEfforts`（`false` / 档位字典；`off` 可留空=不发送） |

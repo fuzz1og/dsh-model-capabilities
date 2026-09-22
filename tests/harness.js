@@ -85,10 +85,14 @@ export function bridge(compat = {}, options = {}) {
     },
   };
   apply({
-    get: () => settings,
+    // `settings` doubles the 0.1.7 surface; `llm` is opt-in per test so the
+    // thinking-tier injector stays inert (no directory -> no work) unless a
+    // test supplies one.
+    get: (name) => (name === 'llm' ? options.llm : settings),
     // The 0.1.7 Host reads live through describe() and subscribes to nothing;
     // keep an inert `on` so a regression that re-adds a subscription still loads.
     on: () => () => {},
+    effect: (fn) => fn(),
     inject: (services, register) => register({
       effect: (fn) => fn(),
       webServer: { register: (route) => { handler = route.handler; } },

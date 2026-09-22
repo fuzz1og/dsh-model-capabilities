@@ -104,7 +104,7 @@ test('actual Host GET → client render/events/save → Host POST/merge → comm
   assert.deepEqual(host.stored().models[0].compat, { modelOnly: true });
   assert.equal(browser.snapshot().revision, 8);
   assert.equal(browser.snapshot().compat.thinkingFormat, 'keep');
-  assert.ok(nodes(browser.render(), (node) => node.props?.text === '已写入 llm-pi-ai · settings.yaml').length);
+  assert.ok(nodes(browser.render(), (node) => node.props?.text === '已写入 llm-pi-ai · cordis.patch.yml').length);
 
   tree = browser.render();
   const enumRow = nodes(tree, (node) => node.props?.key === 'compat-thinkingFormat')[0];
