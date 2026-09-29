@@ -106,10 +106,10 @@ reasoningEfforts:
 ## 安装
 
 ```sh
-# GitHub 固定提交（推荐；先到 Releases/Tags 拿 40 位 commit，或直接用 tag）
+# GitHub 固定提交（推荐；先用 git ls-remote 取默认分支的 40 位 commit。
+# 仓库的 tag 停在 v0.7.0，之后的版本一律按 commit 固定）
 dsh plugin --profile web add github:fuzz1og/dsh-model-capabilities#<40位commit>
-# 例（tag 对应的提交同样可用 40 位 sha）：
-#   dsh plugin --profile web add github:fuzz1og/dsh-model-capabilities#$(git ls-remote https://github.com/fuzz1og/dsh-model-capabilities.git refs/tags/v0.12.0 | cut -c1-40)
+# 例：dsh plugin --profile web add github:fuzz1og/dsh-model-capabilities#0d4a8d8f3e3746b3bd8fcb598310ca9c91be30d2
 
 # 本地开发安装（从仓库根目录；保持目录在位）
 dsh plugin --profile web add ./
