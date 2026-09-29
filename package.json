@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-capabilities",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "DSH web plugin: a dedicated 模型能力 settings page for llm-pi-ai — per-model thinking tiers (reasoningEfforts) with a one-click provider-level 标准档位 rollout, provider default reasoning effort, request headers and gateway compat switches. 模型能力独立设置页：思考档位（含一键标准档位）+ 请求头 + 兼容开关。",
   "type": "module",
   "license": "MIT",

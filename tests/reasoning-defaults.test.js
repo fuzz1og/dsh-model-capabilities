@@ -330,6 +330,46 @@ test('a route-level-only save never rewrites an existing models list', async () 
   assert.deepEqual(host.stored().headers, { 'x-only': 'v' });
 });
 
+test('a per-model save writes reasoningEfforts paths only — never the models list', async () => {
+  // `describe()` projects the schemastery-PARSED section, where an absent
+  // `input` has already become `[]` and an absent dict `{}`. Replacing the whole
+  // `models` array with that projection is what once materialized schema
+  // defaults into the user's cordis.patch.yml — rewriting the accepted
+  // modalities the official Models page owns. A path op can only touch the key
+  // it names, so the bridge must never emit a `models` op.
+  const host = bridge({});
+  const saved = await host.request('POST', {
+    provider: 'test',
+    revision: 7,
+    models: [{ id: 'test', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' } }],
+  });
+  assert.equal(saved.status, 200);
+  const paths = host.operations().map((op) => op.path.join('.'));
+  assert.ok(paths.includes('providers.test.models.0.reasoningEfforts'), `tier op missing: ${JSON.stringify(paths)}`);
+  assert.ok(!paths.includes('providers.test.models'), 'the models list must never be replaced');
+  assert.deepEqual(
+    paths.filter((path) => path.startsWith('providers.test.models.0.')),
+    ['providers.test.models.0.reasoningEfforts'],
+    'no other model field may be written',
+  );
+  // The untouched fields are still exactly what the document held: nothing was
+  // materialized, and no `input` appeared.
+  assert.deepEqual(Object.keys(host.stored().models[0]).sort(), ['compat', 'id', 'name', 'reasoningEfforts']);
+  assert.deepEqual(host.stored().models[0].compat, { modelOnly: true });
+  assert.equal(host.stored().models[0].name, 'Test');
+  // Clearing a tier is an unset — which restores inheritance instead of writing
+  // an empty declaration pi-ai would refuse.
+  const cleared = await host.request('POST', { provider: 'test', revision: 8, models: [{ id: 'test', reasoningEfforts: {} }] });
+  assert.equal(cleared.status, 200);
+  assert.equal('reasoningEfforts' in host.stored().models[0], false);
+  // A payload naming a model this route does not store edits no model at all
+  // (the route-level defaults it also carries are unrelated and always written).
+  const unknown = await host.request('POST', { provider: 'test', revision: 9, models: [{ id: 'ghost', reasoningEfforts: false }] });
+  assert.equal(unknown.status, 200);
+  assert.deepEqual(host.operations().filter((op) => op.path.join('.').startsWith('providers.test.models')), []);
+  assert.equal('reasoningEfforts' in host.stored().models[0], false);
+});
+
 test('the providers index lists every route with the identity a two-pane page needs', async () => {
   // The standalone settings page renders this in one request. `declared` must
   // come from the adapter (the same signal the tier injector trusts), and a

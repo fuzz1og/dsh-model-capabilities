@@ -40,6 +40,14 @@ repository's own security, testing, and release rules remain authoritative.
   `providers.<route>.defaultInput` belong to the official Models page's
   "Input types" editor (dsh 0.2.0+). The bridge neither reads nor writes them;
   do not re-add a second editor for a field another surface already owns.
+- **A per-model save writes PATHS, never lists.** `describe()` projects the
+  schemastery-PARSED section, where an absent `input` has already become `[]`
+  and an absent dict `{}`; replacing `providers.<route>.models` with that
+  projection materializes every schema default into the user's
+  `cordis.patch.yml` — rewriting the official page's modalities, which is
+  exactly what 0.12.1 fixed. Emit one
+  `providers.<route>.models.<i>.reasoningEfforts` op per edited model instead.
+  `tests/reasoning-defaults.test.js` asserts the `models` path never appears.
 - **标准档位 is one constant, declared twice on purpose.** The Host owns
   `STANDARD_REASONING_EFFORTS` in `lib/index.js`; the client mirrors it as
   `STANDARD_TIER`. `tests/reasoning-defaults.test.js` loads both files and

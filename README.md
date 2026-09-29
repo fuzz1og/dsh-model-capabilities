@@ -18,6 +18,20 @@ A DeepSeek Harness (DSH) web plugin — Host + Web UI track.
   （`assertServiceable`：非法的协议/档位组合会在写入处就被拒绝）。
 - Host 面仅提供同源 HTTP 桥；无自有持久数据（`llm-pi-ai` 命名空间属主是 pi-ai 适配器）。
 
+## 0.12.1 修复
+
+- **写入边界收紧到"只写它自己的键"**：逐模型保存改成一个模型一条路径操作
+  （`providers.<route>.models[i].reasoningEfforts`），不再整体替换 `models` 数组。
+  原来的写法把 `describe()` 返回的 **schema 解析后**的值写回用户文件 —— 解析后的值里
+  未声明的 `input` 已经变成 `[]`、未声明的字典变成 `{}`，于是「应用能力配置」会把
+  这些默认值物化进 `cordis.patch.yml`，看起来就是插件擅自改了模型的模态。
+  现在除 `reasoningEfforts` 之外，插件不写模型的任何其他字段：回归测试断言 ops 里
+  永远不出现 `providers.<route>.models` 这条路径（只出现 `…models.<i>.reasoningEfforts`）。
+  路由级的 `reasoning` / `headers` / `compat` 本来就是单键写入，未受影响。
+- **排版**：字段网格改为自适应多列（`minmax(158px, 1fr)`：约 380px 的右栏得到两列，
+  更宽时三列），下拉控件撑满所在列（此前是内容宽度，右侧大片留白）；提供方列表在
+  页面滚动时吸顶；编辑器头部重复的「刷新」按钮移除。
+
 ## 0.12.0 变更（面向 0.11.0 用户）
 
 1. **不再编辑支持模态**。`models[].input` 与 `providers.<route>.defaultInput`
@@ -57,13 +71,19 @@ reasoningEfforts:
 
 两个入口写的是同一个常量：
 
-- **提供方名字旁的「标准档位」按钮（0.12.0）**：把该提供方 `models` 里**每个模型**
-  的 `reasoningEfforts` 写成标准档位，并在**同一次点击**里提交（与「应用能力配置」
+- **提供方名字旁的「标准档位」按钮**：把该提供方 `models` 里**每个模型**的
+  `reasoningEfforts` 写成标准档位，并在**同一次点击**里提交（与「应用能力配置」
   同一条 `apply()` 通路，revision 栅栏 + pi-ai 校验一致，编辑器里其他已改字段一并保存，
   不会静默丢弃草稿）。仅对**存有 `models` 清单的路由**提供；内置目录（catalog）路由
   没有可写的清单，按钮不出现，页面会说明原因。
 - **逐模型「思考强度」下拉**：未设置 / 禁用 / 标准档位 / 自定义（自定义可逐档填线上
   拼写，例如 `max → ultra`）。
+
+**写入边界**：逐模型保存是**路径级**的 —— 一个模型一条
+`providers.<route>.models[i].reasoningEfforts`（或 `unset`），**从不整体替换 `models`
+数组**。`describe()` 返回的是 schema 解析后的值（未声明的 `input` 已是 `[]`、未声明的
+字典已是 `{}`），整体写回会把它们物化进你的 `cordis.patch.yml`；路径操作只能碰到它
+指名的那一个键，所以模型上其它字段（含官方 Models 页维护的模态）永远原样保留。
 
 ## 思考档位自动注入（0.9.0，无需操作）
 
@@ -190,12 +210,14 @@ dsh --profile web
   - **官方已接管支持模态**：0.2.0 的 Models 页有逐模型「输入类型」（Text / Image），
     pi-ai 侧写 `input`，DeepSeek 侧写 `inputModalities`；因此本插件 0.12.0 删除了
     这项编辑（见上）。
-- 验证方式与边界：`npm test`（92 项，含 Host 桥 revision 栅栏、客户端渲染/事件/保存、
-  KEEP 语义、整数边界、标准档位注入与一键展开、Host↔client 常量一致性）全部通过；
+- 验证方式与边界：`npm test`（93 项，含 Host 桥 revision 栅栏、客户端渲染/事件/保存、
+  KEEP 语义、整数边界、标准档位注入与一键展开、逐模型写入只碰 `reasoningEfforts`
+  一条路径、Host↔client 常量一致性）全部通过；
   `DSH_PI_AI_PATH=<installed dsh-llm-pi-ai> npm run test:parity` 对本机已安装的
   0.2.0-rc.2 产物核对 offer/withhold、`compatProfile` 键集、枚举值与思考档位后通过。
   **未做**：本次没有重启 profile、没有对 live settings 写入、没有在浏览器里点过界面，
-  因此不声称完成该版本的浏览器实测。
+  因此不声称完成该版本的浏览器实测；排版改动按官方原子与令牌的确定性网格推算，
+  外加单元测试覆盖，不是截图核对。
 - 客户端原子图标改名（0.1.7-alpha.1）：`IconChevronDownOutline14/16` →
   `…OutlineMedium` / `…OutlineRegular`，`IconThinkOutline16` → `IconThinkOutlineRegular/Medium`。
   `lib/client.js` 按新名优先、旧名兜底解析，因此一个 bundle 在改名前后都能取到图标。
