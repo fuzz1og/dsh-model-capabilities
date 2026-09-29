@@ -44,7 +44,9 @@ for (const field of COMPAT_FIELDS) {
 test('hidden offered dictionaries, withheld fields and unknown keys are named and preserved', () => {
   const stored = Object.fromEntries([...COMPAT_UNDISPLAYED_KEYS, ...COMPAT_WITHHELD_KEYS, 'futureKey'].map((key) => [key, { preserve: [1, false, null] }]));
   const snap = snapshotOf(stored);
-  assert.equal(snap.compatHidden.length, 16);
+  // Derived, not pinned: the withheld set is re-audited per adapter release, and
+  // a count here would go stale silently instead of failing on a real edit.
+  assert.equal(snap.compatHidden.length, COMPAT_UNDISPLAYED_KEYS.length + COMPAT_WITHHELD_KEYS.length + 1);
   const reasons = Object.fromEntries(snap.compatHidden.map(({ key, reason }) => [key, reason]));
   assert.equal(reasons.chatTemplateKwargs, 'not-rendered');
   assert.equal(reasons.openRouterRouting, 'withheld');

@@ -2,20 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Readable } from 'node:stream';
 import {
-  DEFAULT_REASONING_EFFORTS,
-  DEFAULT_REASONING_KEYS,
+  STANDARD_REASONING_EFFORTS,
+  STANDARD_REASONING_KEYS,
   declaresReasoningEfforts,
-  defaultEffortOps,
-  ensureDefaultEfforts,
+  isStandardTier,
+  standardTierOps,
+  ensureStandardTiers,
 } from '../lib/index.js';
 import { bridge } from './harness.js';
 
 /**
- * The gap this feature closes: dsh 0.1.7 gives `contextWindow`, `maxTokens` and
+ * The gap this feature closes: dsh gives `contextWindow`, `maxTokens` and
  * `input` a route-level fallback but gives `reasoningEfforts` none, so a
  * *declared* route — what the official Models page creates — resolves through
- * `base?.reasoning ?? false` and offers only `off`. These guards pin both halves:
- * the value written, and the decision of WHERE to write it.
+ * `base?.reasoning ?? false` and offers only `off`. These guards pin both
+ * halves: the value written, and the decision of WHERE to write it.
+ *
+ * The written value is also the page's 标准档位: one constant, declared once
+ * here and mirrored by `STANDARD_TIER` in lib/client.js (asserted below and in
+ * the client regressions), so the one-click rollout cannot drift from the
+ * injector.
  */
 
 /** One directory entry shaped like `ctx.llm.listConfigurableProviders()` output. */
@@ -52,23 +58,45 @@ function offeredLevels(map) {
   });
 }
 
-test('the default declares exactly off/low/high/max, and offers exactly those tiers', async () => {
+test('the standard tier declares exactly off/low/medium/high/max, and offers exactly those tiers', async () => {
   // `off` maps to null (supported, send nothing); the others carry their own
   // wire name. An absent key is pinned to null by pi-ai, i.e. NOT offered, so
   // the key set is the offered tier set.
-  assert.deepEqual(DEFAULT_REASONING_EFFORTS, { off: null, low: 'low', high: 'high', max: 'max' });
-  assert.equal(DEFAULT_REASONING_KEYS, 'off,low,high,max');
-  assert.deepEqual(Object.keys(DEFAULT_REASONING_EFFORTS), ['off', 'low', 'high', 'max']);
-  // The tiers the picker ends up offering — the whole point of the default.
-  assert.deepEqual(offeredLevels(resolveMap(DEFAULT_REASONING_EFFORTS)), ['off', 'low', 'high', 'max']);
-  // Guard the mechanism, not just the outcome: `minimal`/`medium`/`xhigh` are
-  // withheld by their ABSENCE from the declaration, and `off` is offered even
-  // though it never reaches the map.
-  const map = resolveMap(DEFAULT_REASONING_EFFORTS);
+  assert.deepEqual(STANDARD_REASONING_EFFORTS, { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' });
+  assert.equal(STANDARD_REASONING_KEYS, 'off,low,medium,high,max');
+  assert.deepEqual(Object.keys(STANDARD_REASONING_EFFORTS), ['off', 'low', 'medium', 'high', 'max']);
+  // The tiers the picker ends up offering — the whole point of the tier.
+  assert.deepEqual(offeredLevels(resolveMap(STANDARD_REASONING_EFFORTS)), ['off', 'low', 'medium', 'high', 'max']);
+  // Guard the mechanism, not just the outcome: `minimal`/`xhigh` are withheld by
+  // their ABSENCE from the declaration, and `off` is offered even though it never
+  // reaches the map.
+  const map = resolveMap(STANDARD_REASONING_EFFORTS);
   assert.equal(map.off, undefined);
   assert.equal(map.minimal, null);
-  assert.equal(map.medium, null);
   assert.equal(map.xhigh, null);
+  // The browser half mirrors this exact dict — spread into this realm, because
+  // the client file is evaluated in its own vm context and a cross-realm object
+  // fails a strict prototype comparison even when the data matches.
+  const { client } = await import('./harness.js');
+  const browser = client(async () => ({ ok: true, json: async () => ({ ok: true }) }));
+  assert.deepEqual({ ...browser.ui.STANDARD_TIER }, STANDARD_REASONING_EFFORTS);
+});
+
+test('isStandardTier recognises exactly the standard declaration, in any key order', () => {
+  assert.equal(isStandardTier({ off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' }), true);
+  // A hand-written patch may list the levels in another order; the dict is a
+  // declaration of offered levels, not a sequence.
+  assert.equal(isStandardTier({ max: 'max', high: 'high', medium: 'medium', low: 'low', off: null }), true);
+  // Anything else is reported as unset/custom, never as "already standard".
+  assert.equal(isStandardTier(undefined), false);
+  assert.equal(isStandardTier(false), false);
+  assert.equal(isStandardTier(null), false);
+  assert.equal(isStandardTier([]), false);
+  // The pre-0.12 four-level default also reads as "not the standard tier".
+  assert.equal(isStandardTier({ off: null, low: 'low', high: 'high', max: 'max' }), false);
+  assert.equal(isStandardTier({ off: null, low: 'low', medium: 'medium', high: 'high', max: 'max', minimal: 'minimal' }), false);
+  assert.equal(isStandardTier({ off: null, low: 'low', medium: 'medium', high: 'high', max: 'ultra' }), false);
+  assert.equal(isStandardTier({ off: 'skip', low: 'low', medium: 'medium', high: 'high', max: 'max' }), false);
 });
 
 test('only an absent reasoningEfforts is back-filled; a declared one is never rewritten', () => {
@@ -83,7 +111,7 @@ test('only an absent reasoningEfforts is back-filled; a declared one is never re
 });
 
 test('only declared (non-catalog) routes are touched; catalog routes keep their inherited levels', () => {
-  const ops = defaultEffortOps(
+  const ops = standardTierOps(
     [entry('gateway', true), entry('anthropic', false), entry('untagged')],
     sectionWith({
       gateway: { models: [{ id: 'a' }] },
@@ -96,21 +124,21 @@ test('only declared (non-catalog) routes are touched; catalog routes keep their 
   assert.deepEqual(ops, [{
     op: 'set',
     path: ['providers', 'gateway', 'models', '0', 'reasoningEfforts'],
-    value: { off: null, low: 'low', high: 'high', max: 'max' },
+    value: { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' },
   }]);
 });
 
 test('no configurable-provider directory means no work at all', () => {
   const section = sectionWith({ gateway: { models: [{ id: 'a' }] } });
-  assert.deepEqual(defaultEffortOps([], section), []);
-  assert.deepEqual(defaultEffortOps(undefined, section), []);
+  assert.deepEqual(standardTierOps([], section), []);
+  assert.deepEqual(standardTierOps(undefined, section), []);
   // `declared` absent means "the adapter draws no such distinction": treat as
   // the adapter's own route and leave it alone rather than guess.
-  assert.deepEqual(defaultEffortOps([entry('gateway')], section), []);
+  assert.deepEqual(standardTierOps([entry('gateway')], section), []);
 });
 
 test('a model that already declares tiers is skipped, and only it', () => {
-  const ops = defaultEffortOps(
+  const ops = standardTierOps(
     [entry('gateway', true)],
     sectionWith({
       gateway: {
@@ -127,7 +155,7 @@ test('a model that already declares tiers is skipped, and only it', () => {
 });
 
 test('the op path names the model by index, so a model without a stored list is untouched', () => {
-  const ops = defaultEffortOps(
+  const ops = standardTierOps(
     [entry('gateway', true)],
     sectionWith({
       gateway: { models: [{ id: 'first' }, { id: 'second' }] },
@@ -140,21 +168,21 @@ test('the op path names the model by index, so a model without a stored list is 
   ]);
   // A route with no models array (a catalog route with nothing declared) is
   // skipped rather than creating a models list.
-  assert.equal(defaultEffortOps([entry('declared', true)], sectionWith({ declared: {} })).length, 0);
+  assert.equal(standardTierOps([entry('declared', true)], sectionWith({ declared: {} })).length, 0);
 });
 
 test('a malformed namespace value is refused instead of throwing', () => {
   const dir = [entry('gateway', true)];
-  assert.deepEqual(defaultEffortOps(dir, undefined), []);
-  assert.deepEqual(defaultEffortOps(dir, null), []);
-  assert.deepEqual(defaultEffortOps(dir, 'nonsense'), []);
-  assert.deepEqual(defaultEffortOps(dir, { providers: null }), []);
-  assert.deepEqual(defaultEffortOps(dir, { providers: 'nonsense' }), []);
+  assert.deepEqual(standardTierOps(dir, undefined), []);
+  assert.deepEqual(standardTierOps(dir, null), []);
+  assert.deepEqual(standardTierOps(dir, 'nonsense'), []);
+  assert.deepEqual(standardTierOps(dir, { providers: null }), []);
+  assert.deepEqual(standardTierOps(dir, { providers: 'nonsense' }), []);
   // A non-object model entry is skipped, not dereferenced.
-  assert.deepEqual(defaultEffortOps(dir, sectionWith({ gateway: { models: [null, 'x', 7] } })), []);
+  assert.deepEqual(standardTierOps(dir, sectionWith({ gateway: { models: [null, 'x', 7] } })), []);
 });
 
-test('ensureDefaultEfforts writes once and is idempotent on a second pass', async () => {
+test('ensureStandardTiers writes once and is idempotent on a second pass', async () => {
   const calls = [];
   let value = sectionWith({ gateway: { models: [{ id: 'a', contextWindow: 1000, maxTokens: 100, input: ['text'] }] } });
   const settings = {
@@ -172,15 +200,15 @@ test('ensureDefaultEfforts writes once and is idempotent on a second pass', asyn
     },
   };
   const ctx = { get: (name) => (name === 'settings' ? settings : { listConfigurableProviders: () => [entry('gateway', true)] }) };
-  assert.equal(await ensureDefaultEfforts(ctx), 1);
+  assert.equal(await ensureStandardTiers(ctx), 1);
   assert.equal(calls.length, 1);
-  assert.deepEqual(value.providers.gateway.models[0].reasoningEfforts, { off: null, low: 'low', high: 'high', max: 'max' });
+  assert.deepEqual(value.providers.gateway.models[0].reasoningEfforts, { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' });
   // Second pass finds nothing to do: the marker is the stored value itself.
-  assert.equal(await ensureDefaultEfforts(ctx), 0);
+  assert.equal(await ensureStandardTiers(ctx), 0);
   assert.equal(calls.length, 1);
 });
 
-test('ensureDefaultEfforts does the work when the model already carries a compat block', async () => {
+test('ensureStandardTiers does the work when the model already carries a compat block', async () => {
   // Round-tripping a model must not depend on field order or on which other
   // fields are present: only reasoningEfforts decides.
   const settings = {
@@ -188,15 +216,15 @@ test('ensureDefaultEfforts does the work when the model already carries a compat
     async mutate() {},
   };
   const ctx = { get: (name) => (name === 'settings' ? settings : { listConfigurableProviders: () => [entry('gateway', true)] }) };
-  assert.equal(await ensureDefaultEfforts(ctx), 1);
+  assert.equal(await ensureStandardTiers(ctx), 1);
 });
 
 test('a missing service, a detached namespace and a conflict are all silent no-ops', async () => {
   // No settings service at all.
-  assert.equal(await ensureDefaultEfforts({ get: () => undefined }), 0);
+  assert.equal(await ensureStandardTiers({ get: () => undefined }), 0);
   // llm absent (a composition without the adapter).
   const detached = { get: (name) => (name === 'settings' ? { describe: () => [] } : undefined) };
-  assert.equal(await ensureDefaultEfforts(detached), 0);
+  assert.equal(await ensureStandardTiers(detached), 0);
   // llm present but its directory call throws: logged, never fatal.
   const throwing = {
     get: (name) => (name === 'settings'
@@ -204,7 +232,7 @@ test('a missing service, a detached namespace and a conflict are all silent no-o
       : { listConfigurableProviders: () => { throw new Error('registry gone'); } }),
     logger: { warn() {} },
   };
-  assert.equal(await ensureDefaultEfforts(throwing), 0);
+  assert.equal(await ensureStandardTiers(throwing), 0);
   // Conflict: another writer holds the revision. Nothing is retried here; the
   // next settings event re-attempts.
   const conflicted = {
@@ -215,7 +243,7 @@ test('a missing service, a detached namespace and a conflict are all silent no-o
       }
       : { listConfigurableProviders: () => [entry('g', true)] }),
   };
-  assert.equal(await ensureDefaultEfforts(conflicted), 0);
+  assert.equal(await ensureStandardTiers(conflicted), 0);
   // A schema rejection is reported, not swallowed into a crash.
   const rejected = {
     get: (name) => (name === 'settings'
@@ -226,7 +254,7 @@ test('a missing service, a detached namespace and a conflict are all silent no-o
       : { listConfigurableProviders: () => [entry('g', true)] }),
     logger: { warn() {} },
   };
-  assert.equal(await ensureDefaultEfforts(rejected), 0);
+  assert.equal(await ensureStandardTiers(rejected), 0);
 });
 
 test('the plugin subscribes to settings pushes for its namespace only', async () => {
@@ -256,7 +284,7 @@ test('the plugin subscribes to settings pushes for its namespace only', async ()
   });
   assert.deepEqual(events, ['settings/document-updated']);
   // The boot pass already back-filled, so the stashed listener is a no-op now.
-  assert.deepEqual(value.providers.gateway.models[0].reasoningEfforts, { off: null, low: 'low', high: 'high', max: 'max' });
+  assert.deepEqual(value.providers.gateway.models[0].reasoningEfforts, { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' });
   assert.equal(disposers.length, 1);
   // A push for ANOTHER namespace must not trigger work on this one.
   let mutated = 0;
@@ -343,8 +371,47 @@ test('the providers index lists every route with the identity a two-pane page ne
   assert.deepEqual(gateway.modelIds, ['a', 'b']);
   assert.equal(gateway.headerCount, 1);
   assert.equal(gateway.compatCount, 1);
+  // 标准档位 progress: neither stored model declares a tier yet, so the page's
+  // left column must not claim the route is already standard.
+  assert.equal(gateway.modelCount, 2);
+  assert.equal(gateway.standardCount, 0);
   const catalog = json.providers.find((p) => p.provider === 'catalog');
   assert.equal(catalog.declared, false);
   assert.equal(catalog.hasModelsList, false);
   assert.deepEqual(catalog.modelIds, []);
+  // A catalog route stores no list, so it has nothing to roll a tier onto.
+  assert.equal(catalog.modelCount, 0);
+  assert.equal(catalog.standardCount, 0);
+});
+
+test('the providers index reports a route already on the standard tier', async () => {
+  let handler;
+  const section = {
+    providers: {
+      standard: { models: [{ id: 'a', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' } }, { id: 'b', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' } }] },
+      partial: { models: [{ id: 'c', reasoningEfforts: { off: null, low: 'low' } }, { id: 'd' }] },
+    },
+  };
+  const { apply } = await import('../lib/index.js');
+  apply({
+    get: (name) => (name === 'settings'
+      ? { describe: () => [{ ns: 'llm-pi-ai', revision: 1, value: section }] }
+      : (name === 'llm'
+        ? { listConfigurableProviders: () => [{ provider: 'standard', declared: true }, { provider: 'partial', declared: true }] }
+        : undefined)),
+    effect: (fn) => fn(),
+    on: () => () => {},
+    inject: (services, register) => register({
+      effect: (fn) => fn(),
+      webServer: { register: (route) => { handler = route.handler; } },
+    }),
+  });
+  const req = Readable.from([]);
+  req.method = 'GET';
+  req.url = '/model-capabilities/providers';
+  let json;
+  await handler(req, { writeHead: () => {}, end: (body) => { json = JSON.parse(body); } });
+  const byRoute = Object.fromEntries(json.providers.map((p) => [p.provider, p]));
+  assert.equal(byRoute.standard.standardCount, 2);
+  assert.equal(byRoute.partial.standardCount, 0);
 });

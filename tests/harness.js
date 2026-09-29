@@ -34,15 +34,17 @@ export function client(fetch) {
     useEffect(fn) { effects.push(fn); },
   };
   // Atoms the bundle resolves at runtime. The icon names are the ones the
-  // installed 0.1.7-alpha.1 primitives actually export (verified in the package
+  // installed 0.2.0-rc.2 primitives actually export (verified in the package
   // bundle), so an icon fallback chain resolves here exactly as it does in the
   // browser instead of collapsing to `undefined` and hiding a missing icon.
   const atoms = Object.fromEntries([
-    'Button', 'Pill', 'Input', 'Menu', 'DisclosureRow', 'StateDot',
+    'Button', 'Pill', 'Tag', 'Input', 'Menu', 'DisclosureRow', 'SegmentedControl', 'StateDot',
     'IconChevronDownOutlineRegular',
     'IconThinkOutlineRegular',
+    'IconGaugeOutlineRegular',
     'IconSlidersTwoOutlineRegular',
     'IconLinkOutlineRegular',
+    'IconRefreshOutlineRegular',
   ].map((name) => [name, name]));
   vm.runInNewContext(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'), {
     fetch,
@@ -76,9 +78,13 @@ export function client(fetch) {
       if (!hooks.has(mod.__internals.ModelCapabilities)) hooks.set(mod.__internals.ModelCapabilities, { states: [], cursor: 0 });
       return hooks.get(mod.__internals.ModelCapabilities);
     },
-    render(snapshot) {
+    /**
+     * Render the inline editor with a seeded snapshot and no load flush, so a
+     * test may drive one interaction against exactly the view it states.
+     */
+    render(snapshot, props = { provider: { provider: 'test' }, configured: true }) {
       if (snapshot !== undefined) this.editorSlot().states[0] = snapshot;
-      return run(mod.__internals.ModelCapabilities, { provider: { provider: 'test' }, configured: true });
+      return run(mod.__internals.ModelCapabilities, props);
     },
     /**
      * Mount the inline editor for a route and settle its own load, so the tree
@@ -137,7 +143,7 @@ export function nodes(tree, predicate) {
 }
 
 /**
- * Settings double matching the dsh 0.1.7-alpha.1 surface: `describe()` +
+ * Settings double matching the installed dsh 0.2.0-rc.2 surface: `describe()` +
  * `mutate()` only. `get(ns)` deliberately does NOT exist here — the real
  * service removed it in 0.1.7, so a regression that reintroduces a call to it
  * must fail loudly instead of passing against a friendlier stub.

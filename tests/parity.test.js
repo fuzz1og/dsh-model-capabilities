@@ -29,20 +29,53 @@ if (!adapterPath) {
 }
 const required = process.env.DSH_REQUIRE_PI_AI_PARITY === '1';
 
-test('installed pi-ai offer/withhold gates, profile, schema and enums match this card', { skip: !adapterPath && !required ? 'Set DSH_PI_AI_PATH to an installed dsh-llm-pi-ai package to check upstream parity' : false }, (t) => {
+/**
+ * Every `key: "offer" | "withhold"` pair the adapter's gate tables declare.
+ *
+ * dsh 0.2.0-rc.2 ships the gates in `lib/index.js` (the compiled bundle), not in
+ * the `lib/types/catalog.d.ts` declaration file this check used to read: an
+ * installed package has no `types/` directory at all. Both layouts are
+ * supported — the declaration file when present, the runtime module otherwise —
+ * because the withheld set is what a user's stored profile is diagnosed
+ * against, and it must be read from whatever the installed version actually
+ * ships.
+ *
+ * @param source - the adapter's `lib/index.js`.
+ * @param declarations - its `lib/types/catalog.d.ts`, when the package ships one.
+ * @returns the disposition of every field any protocol gate classifies.
+ */
+function gateDispositions(source, declarations) {
+  const regions = [];
+  if (declarations !== undefined) {
+    for (const [, , body] of declarations.matchAll(/declare const (\w+_COMPAT_GATE): \{([\s\S]*?)\n\};/g)) regions.push(body);
+  }
+  // Named tables (`const X_COMPAT_GATE = { … };`) plus the protocol map itself,
+  // whose gates may be declared inline.
+  for (const [, body] of source.matchAll(/const \w*_COMPAT_GATE = \{([\s\S]*?)\n\};/g)) regions.push(body);
+  for (const [, body] of source.matchAll(/const COMPAT_GATES = \{([\s\S]*?)\n\};/g)) regions.push(body);
+  const pairs = regions.flatMap((body) => [...body.matchAll(/(\w+): "(offer|withhold)"/g)].map(([, key, disposition]) => ({ key, disposition })));
+  return {
+    offered: unique(pairs.filter(({ disposition }) => disposition === 'offer').map(({ key }) => key)),
+    withheld: unique(pairs.filter(({ disposition }) => disposition === 'withhold').map(({ key }) => key)),
+    protocols: unique([...source.matchAll(/^\s*"[a-z-]+(?:-[a-z]+)*": (?:\w*_COMPAT_GATE|\{)/gm)].map(([line]) => line.trim())).length,
+  };
+}
+
+test('installed pi-ai offer/withhold gates, schema and enums match this card', { skip: !adapterPath && !required ? 'Set DSH_PI_AI_PATH to an installed dsh-llm-pi-ai package to check upstream parity' : false }, (t) => {
   assert.ok(adapterPath, 'DSH_PI_AI_PATH is required for test:parity when pi-ai is not locally resolvable');
   const manifest = JSON.parse(readFileSync(join(adapterPath, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@deepseek-ai/dsh-llm-pi-ai');
-  assert.equal(manifest.version, '0.1.7-alpha.2', 'Re-audit offer/withhold and update the pinned compatibility target');
-  const declarations = readFileSync(join(adapterPath, 'lib/types/catalog.d.ts'), 'utf8');
+  assert.equal(manifest.version, '0.2.0-rc.2', 'Re-audit offer/withhold and update the pinned compatibility target');
   const source = readFileSync(join(adapterPath, 'lib/index.js'), 'utf8');
-  const gates = [...declarations.matchAll(/declare const (\w+_COMPAT_GATE): \{([\s\S]*?)\n\};/g)];
-  assert.equal(gates.length, 4, 'All protocol gates must be inspected');
-  const dispositions = gates.flatMap(([, , body]) => [...body.matchAll(/readonly (\w+): "(offer|withhold)";/g)].map(([, key, disposition]) => ({ key, disposition })));
-  const offered = unique(dispositions.filter(({ disposition }) => disposition === 'offer').map(({ key }) => key));
-  const withheld = unique(dispositions.filter(({ disposition }) => disposition === 'withhold').map(({ key }) => key));
+  let declarations;
+  try { declarations = readFileSync(join(adapterPath, 'lib/types/catalog.d.ts'), 'utf8'); } catch { declarations = undefined; }
+
+  const gates = gateDispositions(source, declarations);
+  assert.ok(gates.protocols >= 6, `Expected every protocol gate to be inspected, found ${gates.protocols}`);
+  const offered = gates.offered;
+  const withheld = gates.withheld;
   assert.equal(offered.length, 26);
-  assert.equal(withheld.length, 13);
+  assert.equal(withheld.length, 14);
   const covered = [...COMPAT_FIELDS.map(({ key }) => key), ...COMPAT_UNDISPLAYED_KEYS];
   assert.equal(new Set(covered).size, covered.length, 'No duplicate or ambiguously classified fields');
   assert.deepEqual(sorted(covered), sorted(offered));
@@ -50,9 +83,6 @@ test('installed pi-ai offer/withhold gates, profile, schema and enums match this
   assert.deepEqual(sorted([...rendered.map(({ key }) => key), ...COMPAT_UNDISPLAYED_KEYS]), sorted(offered));
   assert.ok(withheld.every((key) => !covered.includes(key)));
 
-  const profile = declarations.match(/export interface PiAiCompatProfile \{([\s\S]*?)\n\}/)?.[1];
-  assert.ok(profile, 'Expected exported profile interface');
-  assert.deepEqual(sorted([...profile.matchAll(/^\s+(\w+)\?:/gm)].map(([, key]) => key)), sorted(offered));
   const schema = source.match(/const compatProfile = z\.object\(\{([\s\S]*?)\n\}\);/)?.[1];
   assert.ok(schema, 'Expected adapter compat schema');
   const schemaFields = [...schema.matchAll(/^\s*(\w+): (.+?)(?:,)?$/gm)];
@@ -71,5 +101,10 @@ test('installed pi-ai offer/withhold gates, profile, schema and enums match this
     assert.deepEqual(sorted(values), sorted(upstreamValues), key);
     assert.ok(schemaFields.find(([, name]) => name === key)[2].includes('z.union(' + names[key] + ')'));
   }
-  t.diagnostic(manifest.version + ': 26 offered = 24 rendered (19 bool / 4 enum / 1 integer) + 2 preserved dictionaries; 13 withheld; all profile/schema keys and enum values match');
+  // The thinking levels a tier may name, and the modalities the adapter accepts,
+  // are the two other closed sets this bundle depends on.
+  const levels = source.match(/const THINKING_LEVELS = Object\.keys\(\{([\s\S]*?)\}\);/)?.[1];
+  assert.ok(levels, 'Expected THINKING_LEVELS');
+  assert.deepEqual(sorted([...levels.matchAll(/([\w-]+): true/g)].map(([, level]) => level)), sorted(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']));
+  t.diagnostic(`${manifest.version}: ${offered.length} offered = 24 rendered (19 bool / 4 enum / 1 integer) + 2 preserved dictionaries; ${withheld.length} withheld; profile schema, enum values and thinking levels all match`);
 });

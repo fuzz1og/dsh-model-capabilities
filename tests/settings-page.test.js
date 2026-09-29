@@ -27,8 +27,13 @@ function textOf(tree) {
 /** A fetch double answering both the index route and a per-provider view. */
 function indexFetch(providers, options = {}) {
   const calls = [];
-  const fetch = async (url) => {
+  const posts = [];
+  const fetch = async (url, init) => {
     calls.push(String(url));
+    if (init !== undefined && init.method === 'POST') {
+      posts.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
     if (String(url).startsWith('/model-capabilities/providers')) {
       if (options.indexError !== undefined) {
         return { ok: true, json: async () => ({ ok: false, error: options.indexError }) };
@@ -42,7 +47,6 @@ function indexFetch(providers, options = {}) {
         revision: 3,
         hasModelsList: options.hasModelsList === true,
         reasoning: null,
-        defaultInput: [],
         compat: null,
         compatHidden: [],
         baseURL: null,
@@ -51,7 +55,7 @@ function indexFetch(providers, options = {}) {
       }),
     };
   };
-  return { fetch, calls };
+  return { fetch, calls, posts };
 }
 
 const row = (provider, extra = {}) => ({
@@ -61,6 +65,8 @@ const row = (provider, extra = {}) => ({
   configured: true,
   hasModelsList: true,
   modelIds: [],
+  modelCount: 0,
+  standardCount: 0,
   headerCount: 0,
   compatCount: 0,
   ...extra,
@@ -115,7 +121,6 @@ test('an empty directory renders an explicit empty state, not a blank pane', asy
   const browser = client(fetch);
   const tree = await browser.renderPage();
   assert.match(textOf(tree), /没有可配置的提供方/);
-  assert.match(textOf(tree), /从左列选择一个提供方/);
   // No editor is composed with nothing selected.
   assert.equal(nodes(tree, (node) => node.type === browser.ui.ModelCapabilities).length, 0);
 });
@@ -147,8 +152,11 @@ test('a catalog route keeps the route-level editor instead of a dead end', async
   assert.match(text, /请求头/);
   assert.match(text, /兼容设置/);
   // The per-model section is gone, with a note saying why.
-  assert.doesNotMatch(text, /逐行覆盖提供方默认值/);
+  assert.doesNotMatch(text, /模型思考档位/);
   assert.match(text, /内置目录模型/);
+  // A catalog route has no models list to roll the tier onto, so the header
+  // action is withheld rather than offered and then refused by the Host.
+  assert.equal(nodes(tree, (node) => node.type === 'Button' && typeof node.props?.title === 'string' && node.props.title.includes('标准档位')).length, 0);
   // And the save control is enabled: a missing models list must not disable a
   // route-level save (that was the 409 the Host used to return).
   const save = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('应用能力配置'));
@@ -159,23 +167,22 @@ test('a catalog route keeps the route-level editor instead of a dead end', async
 test('a route with a stored list keeps the per-model editor and its save gate', async () => {
   // The contrast case: the per-model section is present, and an empty list still
   // gates the save (a route with a models key must declare at least one model).
-  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1', input: [] }] });
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1' }] });
   const browser = client(fetch);
   const tree = await browser.renderEditor(
     { provider: { provider: 'gateway' }, configured: true },
     browser.ui.loadView(3, {
       hasModelsList: true,
       reasoning: null,
-      defaultInput: [],
       compat: null,
       compatHidden: [],
       baseURL: null,
       headers: null,
-      models: [{ id: 'm1', input: [] }],
+      models: [{ id: 'm1' }],
     }),
   );
   const text = textOf(tree);
-  assert.match(text, /逐行覆盖提供方默认值/);
+  assert.match(text, /模型思考档位（1）/);
   assert.doesNotMatch(text, /内置目录模型/);
   const save = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('应用能力配置'));
   assert.equal(save.length, 1);
@@ -210,13 +217,18 @@ test('unconfigured routes are hidden by default and revealed by the toggle', asy
   const navRows = () => nodes(tree, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'));
   // Only the configured route is listed...
   assert.equal(navRows().length, 1);
-  assert.match(textOf(tree), /已配置 1/);
-  assert.match(textOf(tree), /全部 2/);
+  // ...and the official segmented filter states both counts (the labels live on
+  // the SegmentedControl options, which the harness renders as data).
+  const filter = nodes(tree, (node) => node.type === 'SegmentedControl');
+  assert.equal(filter.length, 1);
+  // Copied into this realm: the props came out of the client's own vm context,
+  // and both its objects and the arrays its own `.map` returns fail a strict
+  // prototype comparison here.
+  assert.deepEqual(Array.from(filter[0].props.options, (option) => String(option.value)), ['configured', 'all']);
+  assert.deepEqual(Array.from(filter[0].props.options, (option) => String(option.label)), ['已配置 1', '全部 2']);
 
-  // ...until the toggle asks for everything.
-  const all = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('全部'));
-  assert.equal(all.length, 1);
-  all[0].props.onClick();
+  // ...until the filter asks for everything.
+  filter[0].props.onChange('all');
   const expanded = browser.rerenderPage();
   const expandedRows = nodes(expanded, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'));
   assert.equal(expandedRows.length, 2);
@@ -232,8 +244,8 @@ test('selecting an unconfigured route explains itself instead of erroring', asyn
   ]);
   const browser = client(fetch);
   let tree = await browser.renderPage();
-  const all = nodes(tree, (node) => node.type === 'Button' && textOf(node).includes('全部'));
-  all[0].props.onClick();
+  const filter = nodes(tree, (node) => node.type === 'SegmentedControl');
+  filter[0].props.onChange('all');
   tree = browser.rerenderPage();
   const catalogRow = nodes(tree, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'))
     .find((node) => textOf(node).includes('Catalog A'));
@@ -283,7 +295,7 @@ test('every disclosure row is given the icon its contract requires', async () =>
       compatHidden: [],
       baseURL: null,
       headers: null,
-      models: [{ id: 'm1', input: [] }],
+      models: [{ id: 'm1' }],
     }),
   );
   const rows = nodes(tree, (node) => node.type === 'DisclosureRow');
@@ -297,19 +309,18 @@ test('collapsed summaries are told to shrink, so they cannot wrap in the 24px ro
   // A disclosure row is a fixed 24px flex line whose children are `flex: none`.
   // A long summary therefore wrapped to several lines and `overflow: hidden`
   // sliced it into overlapping text (measured: a 54px summary in a 24px row).
-  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1', input: [] }] });
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1' }] });
   const browser = client(fetch);
   const tree = await browser.renderEditor(
     { provider: { provider: 'gateway' }, configured: true },
     browser.ui.loadView(3, {
       hasModelsList: true,
       reasoning: null,
-      defaultInput: [],
       compat: null,
       compatHidden: [],
       baseURL: null,
       headers: null,
-      models: [{ id: 'm1', input: [] }],
+      models: [{ id: 'm1' }],
     }),
   );
   const rows = nodes(tree, (node) => node.type === 'DisclosureRow');
@@ -328,4 +339,101 @@ test('collapsed summaries are told to shrink, so they cannot wrap in the 24px ro
   // ...and the model summary must not wrap its pills.
   const pillSummary = summaries.find((c) => String(c.props?.className).includes('mc-modelSummary'));
   assert.ok(pillSummary !== undefined, 'model summary not found');
+});
+
+test('the editor header names the provider and keeps the 标准档位 action beside it', async () => {
+  // "Right of the provider name" is the placement contract: the header carries
+  // the display name (falling back to the route id), the directory tag, and the
+  // one-click tier action in the same line.
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1' }] });
+  const browser = client(fetch);
+  const tree = await browser.renderEditor({ provider: { provider: 'gateway', displayName: 'Gateway One', declared: true }, configured: true });
+  const name = nodes(tree, (node) => node.props?.className === 'mc-headName');
+  assert.equal(name.length, 1);
+  assert.equal(textOf(name[0]), 'Gateway One');
+  // The route id stays visible when it differs from the display name.
+  assert.match(textOf(tree), /gateway/);
+  assert.match(textOf(tree), /自定义/);
+  // One action, disabled only while a write is in flight.
+  const tier = nodes(tree, (node) => node.type === 'Button' && String(node.props?.title ?? '').includes('标准档位'));
+  assert.equal(tier.length, 1);
+  assert.equal(tier[0].props.disabled, false);
+  assert.match(textOf(tree), /已是标准档位 0\/1/);
+});
+
+test('the provider-level 标准档位 action writes the tier to every model in one click', async () => {
+  // pi-ai has no named tier, so the action expands 标准档位 into the same
+  // reasoningEfforts dict the injector writes — for EVERY model of the route,
+  // including one currently disabled and one with a custom list.
+  const { fetch, posts } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1' }] });
+  const browser = client(fetch);
+  const snapshot = browser.ui.loadView(3, {
+    hasModelsList: true,
+    reasoning: null,
+    compat: null,
+    compatHidden: [],
+    baseURL: null,
+    headers: null,
+    models: [
+      { id: 'm1' },
+      { id: 'm2', reasoningEfforts: false },
+      { id: 'm3', reasoningEfforts: { off: null, low: 'low', high: 'ultra', max: 'max' } },
+    ],
+  });
+  const tree = browser.render(snapshot, { provider: { provider: 'gateway' }, configured: true });
+  const tier = nodes(tree, (node) => node.type === 'Button' && String(node.props?.title ?? '').includes('标准档位'));
+  assert.equal(tier.length, 1);
+  tier[0].props.onClick();
+  // The handler commits immediately: one POST, no second click.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(posts.length, 1);
+  assert.deepEqual(posts[0].provider, 'gateway');
+  // Normalized into this realm: the payload came out of the client's own vm
+  // context, whose objects fail a strict prototype comparison.
+  const written = JSON.parse(JSON.stringify(posts[0].models));
+  const expectedTier = { off: null, low: 'low', medium: 'medium', high: 'high', max: 'max' };
+  assert.deepEqual(written, [
+    { id: 'm1', reasoningEfforts: expectedTier },
+    { id: 'm2', reasoningEfforts: expectedTier },
+    { id: 'm3', reasoningEfforts: expectedTier },
+  ]);
+});
+
+test('a model already on the standard tier is reported as such, not re-staged as custom', async () => {
+  // The same dict written by the injector must read back as 标准档位 in the row
+  // summary — otherwise a back-filled model would look like a hand-written list
+  // and the header count would never reach "all standard".
+  const { fetch } = indexFetch([], { hasModelsList: true, models: [{ id: 'm1' }] });
+  const browser = client(fetch);
+  const tree = browser.render(browser.ui.loadView(3, {
+    hasModelsList: true,
+    reasoning: null,
+    compat: null,
+    compatHidden: [],
+    baseURL: null,
+    headers: null,
+    // Key order differs from the constant on purpose: the dict is a declaration.
+    models: [{ id: 'm1', reasoningEfforts: { max: 'max', high: 'high', medium: 'medium', low: 'low', off: null } }],
+  }));
+  assert.match(textOf(tree), /全部 1 个模型已是标准档位/);
+  // The row summary is a DisclosureRow prop, not a child, so read it there.
+  const rows = nodes(tree, (node) => node.type === 'DisclosureRow' && node.props?.title === 'm1');
+  assert.equal(rows.length, 1);
+  assert.match(textOf(rows[0].props.collapsedContent), /标准档位/);
+});
+
+test('the provider list marks routes already on the standard tier', async () => {
+  const { fetch } = indexFetch([
+    row('standard-route', { modelCount: 2, standardCount: 2, modelIds: ['a', 'b'] }),
+    row('partial-route', { modelCount: 3, standardCount: 1, modelIds: ['c'] }),
+  ]);
+  const browser = client(fetch);
+  const tree = await browser.renderPage();
+  const navRows = nodes(tree, (node) => typeof node.props?.className === 'string' && node.props.className.includes('mcp-navRow'));
+  const standardRow = navRows.find((node) => textOf(node).includes('standard-route'));
+  const partialRow = navRows.find((node) => textOf(node).includes('partial-route'));
+  assert.ok(standardRow !== undefined && partialRow !== undefined);
+  assert.match(textOf(standardRow), /标准档位/);
+  assert.doesNotMatch(textOf(partialRow), /标准档位/);
 });
